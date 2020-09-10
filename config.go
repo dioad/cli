@@ -1,46 +1,15 @@
 package cli
 
-import "C"
 import (
-	"crypto/tls"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-
-	dct "github.com/dioadconsulting/net/tls"
 )
 
-type TLSConfig struct {
 
-	TLSServerName         string `mapstructure:"tls-server-name"`
-	TLSServerCertificate  string `mapstructure:"tls-server-cert"`
-	TLSServerKey          string `mapstructure:"tls-server-key"`
-	TLSServerCAFile       string `mapstructure:"tls-server-ca-file"`
-	TLSServerClientAuth   string `mapstructure:"tls-server-client-auth"`
-	TLSServerClientCAFile string `mapstructure:"tls-server-client-ca-file"`
-
-	TLSClientCertificate string `mapstructure:"tls-client-cert"`
-	TLSClientKey         string `mapstructure:"tls-client-key"`
-	TLSClientSkipVerify  bool   `mapstructure:"tls-client-skip-verify"`
-}
-
-func (c TLSConfig) Parse() *tls.Config {
-	var tlsConfig = &tls.Config{}
-	if C.TLSServerCertificate != "" {
-		serverCertificate, err := dct.LoadServerCertificateFromConfig(C.TLSConfig)
-
-		if err != nil {
-			log.Fatal(err)
-		}
-		tlsConfig.Certificates = []tls.Certificate{*serverCertificate}
-	}
-
-	return tlsConfig
-}
-
-func InitViperConfig(orgName, appName string) error {
+func InitViperConfig(orgName, appName string, cfg interface{}) error {
 	pflag.Parse()
 
 	viper.BindPFlags(pflag.CommandLine)
@@ -62,6 +31,11 @@ func InitViperConfig(orgName, appName string) error {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return fmt.Errorf("Fatal error reading config file: %s \n", err)
 		}
+	}
+
+	err = viper.Unmarshal(cfg)
+	if err != nil {
+		return err
 	}
 
 	return nil
