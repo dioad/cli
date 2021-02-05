@@ -1,4 +1,4 @@
-module github.com/dioadconsulting/cli
+module github.com/dioad/cli
 
 go 1.15
 
