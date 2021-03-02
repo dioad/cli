@@ -21,6 +21,7 @@ func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsed
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(fmt.Sprintf("/etc/%s/%s", orgName, appName))
 	viper.AddConfigPath(fmt.Sprintf("$HOME/.%s/%s", orgName, appName))
+	viper.AddConfigPath(fmt.Sprintf("$HOME/.config/%s/%s", orgName, appName))
 	viper.AddConfigPath(".")
 	viper.SetEnvPrefix(appName)
 	if viper.GetString("config") != "" {
