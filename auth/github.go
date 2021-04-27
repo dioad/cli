@@ -8,12 +8,12 @@ import (
 )
 
 func displayCode(userCode string, uri string) error {
-	fmt.Printf("Copy one-time code: %s\n", userCode)
+	fmt.Printf("One-time code: %s\n", userCode)
 	return nil
 }
 
 func browseURL(uri string) error {
-	fmt.Println("Open %v in a browser and enter the code above when prompted.\n", uri)
+	fmt.Printf("Go to %v in a browser and enter the code above when prompted.\n", uri)
 	return nil
 }
 
