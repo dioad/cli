@@ -1,17 +1,19 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
 
-	"github.com/dioad/cli/logging"
 	"github.com/mitchellh/go-homedir"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+
+	"github.com/dioad/cli/logging"
 )
 
 func InitViperConfig(orgName, appName string, cfg interface{}) error {
@@ -21,7 +23,10 @@ func InitViperConfig(orgName, appName string, cfg interface{}) error {
 
 func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsedFlagSet *pflag.FlagSet) error {
 
-	viper.BindPFlags(parsedFlagSet)
+	err := viper.BindPFlags(parsedFlagSet)
+	if err != nil {
+		return fmt.Errorf("error binding persistent flags: %w", err)
+	}
 
 	viper.SetConfigName(appName)
 	viper.SetConfigType("yaml")
@@ -36,9 +41,10 @@ func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsed
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 
-	err := viper.ReadInConfig()
+	err = viper.ReadInConfig()
 	if err != nil { // Handle errors reading the config file
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFoundError) {
 			return fmt.Errorf("Fatal error reading config file: %s \n", err)
 		}
 	}
@@ -84,14 +90,14 @@ func InitConfig(orgName, appName, cmdName, cfgFile string, cfg interface{}) (*Co
 
 	// cobra.CheckErr(err)
 
-	//viper.AutomaticEnv() // read in environment variables that match
+	// viper.AutomaticEnv() // read in environment variables that match
 	if err == nil {
 		// Commenting this bit out as I don't like the error
 		// when running commands like `version`
 		//	log.Trace().Err(err).
 		//		Str("file", viper.ConfigFileUsed()).
 		//		Msg("error reading config")
-		//} else {
+		// } else {
 		viper.WatchConfig()
 	}
 
