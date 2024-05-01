@@ -20,8 +20,11 @@ func browseURL(uri string) error {
 }
 
 func gitHubHeadlessDeviceLogin(clientID string, scopes []string) (*api.AccessToken, error) {
+
+	host := oauth.GitHubHost("github.com")
+
 	flow := &oauth.Flow{
-		Hostname: "github.com",
+		Host:     host,
 		ClientID: clientID,
 		Scopes:   scopes,
 	}
@@ -38,8 +41,9 @@ func gitHubHeadlessDeviceLogin(clientID string, scopes []string) (*api.AccessTok
 }
 
 func gitHubDeviceLogin(clientID string, scopes []string) (*api.AccessToken, error) {
+	host := oauth.GitHubHost("github.com")
 	flow := &oauth.Flow{
-		Hostname: "github.com",
+		Host:     host,
 		ClientID: clientID,
 		Scopes:   scopes,
 	}
