@@ -8,13 +8,28 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dioad/util"
 	"github.com/mitchellh/go-homedir"
 	"github.com/rs/zerolog/log"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"github.com/dioad/cli/logging"
 )
+
+// commandParts
+func commandParts(cmd *cobra.Command) []string {
+	parts := make([]string, 0)
+
+	if cmd.Parent() != nil {
+		parts = append(parts, commandParts(cmd.Parent())...)
+	}
+
+	parts = append(parts, cmd.Use)
+
+	return parts
+}
 
 func InitViperConfig(orgName, appName string, cfg interface{}) error {
 	pflag.Parse()
@@ -57,10 +72,10 @@ func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsed
 	return nil
 }
 
-func InitConfig(orgName, appName, cmdName, cfgFile string, cfg interface{}) (*CommonConfig, error) {
+func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg interface{}) (*CommonConfig, error) {
 	viper.SetEnvPrefix(appName)
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
-	err := viper.BindPFlags(pflag.CommandLine)
+	err := viper.BindPFlags(cmd.Flags())
 	if err != nil {
 		return nil, err
 	}
@@ -78,8 +93,10 @@ func InitConfig(orgName, appName, cmdName, cfgFile string, cfg interface{}) (*Co
 			homeConfigPath = filepath.Join(home, ".config", orgName, appName)
 		}
 
+		fullCommandName := fmt.Sprintf("%v\n", strings.Join(commandParts(cmd), "-"))
+
 		// Search config in home directory with name "config" (without extension).
-		viper.SetConfigName(cmdName)
+		viper.SetConfigName(fullCommandName)
 		viper.SetConfigType("yaml")
 		viper.AddConfigPath(systemConfigPath)
 		viper.AddConfigPath(homeConfigPath)
@@ -103,19 +120,19 @@ func InitConfig(orgName, appName, cmdName, cfgFile string, cfg interface{}) (*Co
 
 	var c CommonConfig
 
-	err = viper.Unmarshal(&c)
+	err = viper.Unmarshal(&c) // , viper.DecodeHook(util.MaskedStringDecodeHook))
 	if err != nil {
 		return nil, err
 	}
 
 	logging.ConfigureCmdLogger(c.Logging)
 
-	err = viper.Unmarshal(cfg)
+	err = viper.Unmarshal(cfg, viper.DecodeHook(util.MaskedStringDecodeHook))
 	if err != nil {
 		return &c, err
 	}
 
-	log.Debug().
+	log.Logger.Debug().
 		Str("file", viper.ConfigFileUsed()).
 		Interface("config", cfg).
 		Interface("common", c).

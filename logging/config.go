@@ -8,4 +8,5 @@ type Config struct {
 	MaxBackups int    `mapstructure:"max-backups"`
 	LocalTime  bool   `mapstructure:"use-local-time"`
 	Compress   bool   `mapstructure:"compress"`
+	Mode       string `mapstructure:"mode"`
 }

@@ -13,33 +13,54 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-//func init() {
-//	zerolog.TimeFieldFormat = time.RFC3339Nano
-//
-//	if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
-//		output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339Nano}
-//		log.Logger = zerolog.New(output).With().Timestamp().Logger()
-//	} else {
-//		log.Logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
-//	}
-//}
+const (
+	DefaultLogLevel = zerolog.WarnLevel
+)
 
-func ConfigureCmdLogger(c Config) {
-	ConfigureLogLevel(c.Level)
+type Option func(*Config)
+
+func WithDefaultLogLevel(level zerolog.Level) func(*Config) {
+	return func(c *Config) {
+		if c.Level == "" {
+			c.Level = level.String()
+			return
+		}
+
+		_, err := zerolog.ParseLevel(c.Level)
+		if err != nil {
+			c.Level = level.String()
+			return
+		}
+	}
+}
+
+func ConfigureCmdLogger(c Config, opts ...Option) {
+	for _, o := range opts {
+		o(&c)
+	}
+
+	ConfigureLogLevel(c.Level, DefaultLogLevel)
 	ConfigureLogOutput(c)
 }
 
-func ConfigureLogLevel(levelString string) {
+func ConfigureLogLevel(levelString string, defaultLogLevel zerolog.Level) {
 	// Configure logging
 	zerolog.TimeFieldFormat = time.RFC3339Nano
 
+	if levelString == "" {
+		zerolog.SetGlobalLevel(defaultLogLevel)
+		return
+	}
+
 	logLevel, err := zerolog.ParseLevel(levelString)
 	if err != nil {
-		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+		zerolog.SetGlobalLevel(defaultLogLevel)
 		log.Warn().Err(err).Msg("failed to parse log level. Defaulting to INFO")
-	} else if logLevel.String() != "" {
-		zerolog.SetGlobalLevel(logLevel)
+		return
 	}
+
+	zerolog.SetGlobalLevel(logLevel)
+
 }
 
 func isConsoleWriter(f *os.File) bool {
