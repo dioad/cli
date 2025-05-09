@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -37,7 +38,6 @@ func InitViperConfig(orgName, appName string, cfg interface{}) error {
 }
 
 func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsedFlagSet *pflag.FlagSet) error {
-
 	err := viper.BindPFlags(parsedFlagSet)
 	if err != nil {
 		return fmt.Errorf("error binding persistent flags: %w", err)
@@ -75,6 +75,7 @@ func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsed
 func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg interface{}) (*CommonConfig, error) {
 	viper.SetEnvPrefix(appName)
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+
 	err := viper.BindPFlags(cmd.Flags())
 	if err != nil {
 		return nil, err
@@ -197,5 +198,95 @@ func DefaultPersistenceFile(orgName, appName, baseName string) (string, error) {
 }
 
 type CommonConfig struct {
+	// Config  string         `mapstructure:"config"`
 	Logging logging.Config `mapstructure:"log"`
+}
+
+type Config[T any] struct {
+	CommonConfig
+	Config *T
+}
+
+type orgNameContextKey struct{}
+type appNameContextKey struct{}
+
+type configFileContextKey struct{}
+
+type ContextOpt func(context.Context) context.Context
+
+func Context(ctx context.Context, contextOpts ...ContextOpt) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for _, opt := range contextOpts {
+		ctx = opt(ctx)
+	}
+
+	return ctx
+}
+
+func SetOrgName(orgName string) ContextOpt {
+	return func(ctx context.Context) context.Context {
+		return context.WithValue(ctx, orgNameContextKey{}, orgName)
+	}
+}
+
+func SetAppName(appName string) ContextOpt {
+	return func(ctx context.Context) context.Context {
+		return context.WithValue(ctx, appNameContextKey{}, appName)
+	}
+}
+
+func getOrgName(ctx context.Context) string {
+	orgName, ok := ctx.Value(orgNameContextKey{}).(string)
+	if !ok {
+		return ""
+	}
+	return orgName
+}
+
+func getAppName(ctx context.Context) string {
+	appName, ok := ctx.Value(appNameContextKey{}).(string)
+	if !ok {
+		return ""
+	}
+	return appName
+}
+
+type CobraOpt[T any] func(*T)
+
+func CobraRunEWithConfig[T any](execFunc func(*T) error, cfg *T) func(cmd *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		orgName := getOrgName(cmd.Context())
+		appName := getAppName(cmd.Context())
+
+		var configFile string
+		configFlag := cmd.Flag("config")
+		if configFlag != nil {
+			configFile = configFlag.Value.String()
+		}
+
+		_, err := InitConfig(orgName, appName, cmd, configFile, cfg)
+		cobra.CheckErr(err)
+
+		return execFunc(cfg)
+	}
+}
+
+func CobraRunE[T any](execFunc func(*T) error, opt ...CobraOpt[T]) func(cmd *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		orgName := getOrgName(cmd.Context())
+		appName := getAppName(cmd.Context())
+
+		var cfg T
+
+		for _, o := range opt {
+			o(&cfg)
+		}
+
+		_, err := InitConfig(orgName, appName, cmd, "", &cfg)
+		cobra.CheckErr(err)
+
+		return execFunc(&cfg)
+	}
 }
