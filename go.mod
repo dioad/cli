@@ -7,7 +7,7 @@ toolchain go1.24.0
 replace github.com/urfave/sflags => github.com/patdowney/sflags v0.4.2-patdowney
 
 require (
-	github.com/dioad/util v0.6.0
+	github.com/dioad/util v0.7.0
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/cobra v1.9.1
