@@ -9,12 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dioad/util"
 	"github.com/mitchellh/go-homedir"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+
+	"github.com/dioad/util"
 
 	"github.com/dioad/cli/logging"
 )
@@ -60,7 +61,7 @@ func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsed
 	if err != nil { // Handle errors reading the config file
 		var configFileNotFoundError viper.ConfigFileNotFoundError
 		if !errors.As(err, &configFileNotFoundError) {
-			return fmt.Errorf("Fatal error reading config file: %s \n", err)
+			return fmt.Errorf("fatal error reading config file: %s", err)
 		}
 	}
 
@@ -210,8 +211,6 @@ type Config[T any] struct {
 type orgNameContextKey struct{}
 type appNameContextKey struct{}
 
-type configFileContextKey struct{}
-
 type ContextOpt func(context.Context) context.Context
 
 func Context(ctx context.Context, contextOpts ...ContextOpt) context.Context {
@@ -255,7 +254,7 @@ func getAppName(ctx context.Context) string {
 
 type CobraOpt[T any] func(*T)
 
-func CobraRunEWithConfig[T any](execFunc func(*T) error, cfg *T) func(cmd *cobra.Command, args []string) error {
+func CobraRunEWithConfig[T any](execFunc func(context.Context, *T) error, cfg *T) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		orgName := getOrgName(cmd.Context())
 		appName := getAppName(cmd.Context())
@@ -265,11 +264,10 @@ func CobraRunEWithConfig[T any](execFunc func(*T) error, cfg *T) func(cmd *cobra
 		if configFlag != nil {
 			configFile = configFlag.Value.String()
 		}
-
 		_, err := InitConfig(orgName, appName, cmd, configFile, cfg)
 		cobra.CheckErr(err)
 
-		return execFunc(cfg)
+		return execFunc(cmd.Context(), cfg)
 	}
 }
 
