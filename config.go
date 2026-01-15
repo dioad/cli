@@ -20,7 +20,8 @@ import (
 	"github.com/dioad/cli/logging"
 )
 
-// commandParts
+// commandParts reconstructs the full command path by traversing parent commands.
+// Used internally to build hierarchical command names for configuration lookup.
 func commandParts(cmd *cobra.Command) []string {
 	parts := make([]string, 0)
 
@@ -33,11 +34,29 @@ func commandParts(cmd *cobra.Command) []string {
 	return parts
 }
 
+// InitViperConfig initializes Viper configuration management with parsed command-line flags.
+//
+// It sets up Viper to:
+// - Bind command-line flags
+// - Search for configuration files in standard locations
+// - Support environment variables with the given appName prefix
+// - Unmarshal configuration into the provided cfg struct
+//
+// Configuration sources are merged with this precedence (highest to lowest):
+// 1. Command-line flags
+// 2. Explicit config file (--config flag)
+// 3. Environment variables (prefixed with appName)
+// 4. Config files in standard locations
 func InitViperConfig(orgName, appName string, cfg interface{}) error {
 	pflag.Parse()
 	return InitViperConfigWithFlagSet(orgName, appName, cfg, pflag.CommandLine)
 }
 
+// InitViperConfigWithFlagSet initializes Viper with a custom FlagSet.
+//
+// Similar to InitViperConfig but allows specifying a custom pflag.FlagSet
+// instead of using the global command line flags. Useful for embedding
+// configuration initialization in library code or tests.
 func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsedFlagSet *pflag.FlagSet) error {
 	err := viper.BindPFlags(parsedFlagSet)
 	if err != nil {
@@ -73,6 +92,14 @@ func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsed
 	return nil
 }
 
+// InitConfig loads and initializes configuration from multiple sources.
+//
+// It integrates Cobra commands with Viper configuration management, supporting:
+// - Hierarchical command-based config file naming
+// - Flag binding from the Cobra command
+// - Environment variable overrides
+// - Automatic logging configuration
+// - Configuration hot-reloading via Viper watchers
 func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg interface{}) (*CommonConfig, error) {
 	viper.SetEnvPrefix(appName)
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
@@ -143,6 +170,10 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 	return &c, nil
 }
 
+// IsDocker detects if the application is running inside a Docker container.
+//
+// It checks for the presence of /.dockerenv file, which is a standard
+// indicator that the process is running in a Docker container.
 func IsDocker() bool {
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		return true
@@ -151,6 +182,10 @@ func IsDocker() bool {
 	return false
 }
 
+// DefaultUserConfigPath returns the default configuration directory for the user.
+//
+// For non-Docker environments, it returns $HOME/.config/{orgName}/{appName}
+// and creates the directory if it doesn't exist with 0700 permissions.
 func DefaultUserConfigPath(orgName, appName string) (string, error) {
 	currentUser, err := user.Current()
 	if err != nil {
@@ -164,6 +199,10 @@ func DefaultUserConfigPath(orgName, appName string) (string, error) {
 	return userConfigPath, nil
 }
 
+// DefaultPersistencePath returns the default directory for persistent application data.
+//
+// For Docker containers, this returns /persist.
+// For other environments, it returns the same as DefaultUserConfigPath.
 func DefaultPersistencePath(orgName, appName string) (string, error) {
 	if IsDocker() {
 		return "/persist", nil
@@ -172,6 +211,10 @@ func DefaultPersistencePath(orgName, appName string) (string, error) {
 	return DefaultUserConfigPath(orgName, appName)
 }
 
+// DefaultConfigPath returns the default directory for configuration files.
+//
+// For Docker containers, this returns /config.
+// For other environments, it returns $HOME/.config/{orgName}/{appName}.
 func DefaultConfigPath(orgName, appName string) (string, error) {
 	if IsDocker() {
 		return "/config", nil
@@ -180,6 +223,9 @@ func DefaultConfigPath(orgName, appName string) (string, error) {
 	return DefaultUserConfigPath(orgName, appName)
 }
 
+// DefaultConfigFile returns the full path to the default configuration file.
+//
+// The file is placed in DefaultConfigPath and named {baseName}.yaml.
 func DefaultConfigFile(orgName, appName, baseName string) (string, error) {
 	userConfigPath, err := DefaultConfigPath(orgName, appName)
 	if err != nil {
@@ -189,6 +235,9 @@ func DefaultConfigFile(orgName, appName, baseName string) (string, error) {
 	return filepath.Join(userConfigPath, fmt.Sprintf("%s.yaml", baseName)), nil
 }
 
+// DefaultPersistenceFile returns the full path to a persistence file.
+//
+// The file is placed in DefaultPersistencePath and named {baseName}.yaml.
 func DefaultPersistenceFile(orgName, appName, baseName string) (string, error) {
 	userPersistencePath, err := DefaultPersistencePath(orgName, appName)
 	if err != nil {
@@ -198,6 +247,10 @@ func DefaultPersistenceFile(orgName, appName, baseName string) (string, error) {
 	return filepath.Join(userPersistencePath, fmt.Sprintf("%s.yaml", baseName)), nil
 }
 
+// CommonConfig contains configuration shared across all applications.
+//
+// It includes logging configuration and can be extended in application-specific
+// config structs via embedding.
 type CommonConfig struct {
 	// Config  string         `mapstructure:"config"`
 	Logging logging.Config `mapstructure:"log"`
@@ -211,8 +264,12 @@ type Config[T any] struct {
 type orgNameContextKey struct{}
 type appNameContextKey struct{}
 
+// ContextOpt is a functional option for building a context with application metadata.
 type ContextOpt func(context.Context) context.Context
 
+// Context creates a new context with optional application metadata.
+//
+// It accepts functional options to populate the context with organization and app names.
 func Context(ctx context.Context, contextOpts ...ContextOpt) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -224,12 +281,14 @@ func Context(ctx context.Context, contextOpts ...ContextOpt) context.Context {
 	return ctx
 }
 
+// SetOrgName returns a ContextOpt that stores the organization name in the context.
 func SetOrgName(orgName string) ContextOpt {
 	return func(ctx context.Context) context.Context {
 		return context.WithValue(ctx, orgNameContextKey{}, orgName)
 	}
 }
 
+// SetAppName returns a ContextOpt that stores the application name in the context.
 func SetAppName(appName string) ContextOpt {
 	return func(ctx context.Context) context.Context {
 		return context.WithValue(ctx, appNameContextKey{}, appName)
@@ -252,8 +311,13 @@ func getAppName(ctx context.Context) string {
 	return appName
 }
 
+// CobraOpt is a functional option for configuring command execution.
 type CobraOpt[T any] func(*T)
 
+// CobraRunEWithConfig returns a Cobra RunE function that loads configuration before execution.
+//
+// The returned function handles configuration loading, application metadata retrieval,
+// and passes configured values to the execution function.
 func CobraRunEWithConfig[T any](execFunc func(context.Context, *T) error, cfg *T) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		orgName := getOrgName(cmd.Context())
@@ -271,6 +335,10 @@ func CobraRunEWithConfig[T any](execFunc func(context.Context, *T) error, cfg *T
 	}
 }
 
+// CobraRunE returns a Cobra RunE function with configuration management and functional options.
+//
+// The returned function handles configuration initialization with org and app names from context,
+// applies functional options to modify configuration, and passes configured values to the execution function.
 func CobraRunE[T any](execFunc func(*T) error, opt ...CobraOpt[T]) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		orgName := getOrgName(cmd.Context())

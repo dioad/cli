@@ -14,11 +14,17 @@ import (
 )
 
 const (
+	// DefaultLogLevel is the default logging level when none is configured.
 	DefaultLogLevel = zerolog.WarnLevel
 )
 
+// Option is a functional option for configuring logging behavior.
 type Option func(*Config)
 
+// WithDefaultLogLevel returns an Option that sets a default log level if one isn't already configured.
+//
+// This option is useful for providing application-level defaults that won't override
+// explicit configuration from config files or environment variables.
 func WithDefaultLogLevel(level zerolog.Level) func(*Config) {
 	return func(c *Config) {
 		if c.Level == "" {
@@ -34,6 +40,10 @@ func WithDefaultLogLevel(level zerolog.Level) func(*Config) {
 	}
 }
 
+// ConfigureCmdLogger configures the global zerolog logger with the provided settings and options.
+//
+// It applies all options, then sets up log level and output configuration.
+// This is the main entry point for logging setup in CLI applications.
 func ConfigureCmdLogger(c Config, opts ...Option) {
 	for _, o := range opts {
 		o(&c)
@@ -43,6 +53,10 @@ func ConfigureCmdLogger(c Config, opts ...Option) {
 	ConfigureLogOutput(c)
 }
 
+// ConfigureLogLevel sets the global log level for zerolog.
+//
+// If levelString is empty or invalid, defaultLogLevel is used.
+// Valid levels: trace, debug, info, warn, error, fatal, panic.
 func ConfigureLogLevel(levelString string, defaultLogLevel zerolog.Level) {
 	// Configure logging
 	zerolog.TimeFieldFormat = time.RFC3339Nano
@@ -68,6 +82,10 @@ func isConsoleWriter(f *os.File) bool {
 	return (fileInfo.Mode() & os.ModeCharDevice) != 0
 }
 
+// ConfigureLogFileOutput creates and returns a rotated file writer using lumberjack.
+//
+// The provided Config struct must specify the File path and optional rotation settings.
+// File paths support home directory expansion (e.g., "~/.app/logs/app.log").
 func ConfigureLogFileOutput(c Config) io.Writer {
 	expandedDir, err := homedir.Expand(c.File)
 	if err != nil {
@@ -92,6 +110,11 @@ func ConfigureLogFileOutput(c Config) io.Writer {
 	return logOutput
 }
 
+// ConfigureLogOutput sets up the global zerolog logger output.
+//
+// If stdout is a TTY (terminal), output is formatted as pretty-printed JSON.
+// If a log file is configured, output is directed to the file with rotation.
+// Otherwise, output is directed to stdout as compact JSON.
 func ConfigureLogOutput(c Config) {
 
 	var logOutput io.Writer
@@ -116,6 +139,7 @@ func ConfigureLogOutput(c Config) {
 	defaultLog.SetOutput(log.Logger.With().Str("level", "default").Logger())
 }
 
+// FatalError logs an error with fatal level and exits the program.
 func FatalError(err error) {
 	log.Fatal().Err(err)
 }

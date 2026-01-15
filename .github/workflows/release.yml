@@ -9,44 +9,35 @@ on:
 jobs:
   metadata:
     name: Build Metadata
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
     - name: Get the version
       id: get_version
-      run: echo ::set-output name=version::${GITHUB_REF/refs\/tags\//}
+      run: echo "version=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_OUTPUT
 
   test:
     name: Vet and Test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
 
     steps:
 
-    - name: Set up Go 1.x
-      uses: actions/setup-go@v2
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
       with:
-        go-version: ^1.16
+        go-version: '1.24'
+        cache: true
       id: go
 
-    - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
-
-    - name: Configure github token
-      env:
-        TOKEN_USER: ${{ secrets.WORKFLOW_TOKEN_USER }}
-        TOKEN: ${{ secrets.WORKFLOW_TOKEN}}
-      run: |
-        git config --global url."https://${TOKEN_USER}:${TOKEN}@github.com".insteadOf "https://github.com"
-
     - name: Get dependencies
-      run: |
-        git config -l --global
-        go get -v -t -d ./...
+      run: go mod download
 
     - name: Vet
-      run: |
-        go vet ./...
+      run: go vet ./...
 
     - name: Test
       run: go test -v ./...
@@ -56,7 +47,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     needs:
       - metadata
       - test
@@ -74,35 +65,26 @@ jobs:
       GOARCH: ${{ matrix.arch }}
 
     steps:
-    - name: Set up Go 1.x
-      uses: actions/setup-go@v2
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
       with:
-        go-version: ^1.16
+        go-version: '1.24'
+        cache: true
       id: go
 
-    - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
-
-    - name: Configure github token
-      env:
-        TOKEN_USER: ${{ secrets.WORKFLOW_TOKEN_USER }}
-        TOKEN: ${{ secrets.WORKFLOW_TOKEN}}
-      run: |
-        git config --global url."https://${TOKEN_USER}:${TOKEN}@github.com".insteadOf "https://github.com"
-
     - name: Get dependencies
-      run: |
-        git config -l --global
-        go get -v -t -d ./...
+      run: go mod download
 
     - name: Go Build
-      run: |
-        go build ./...
+      run: go build ./...
 
   release:
     name: Create Release
     needs: build
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
@@ -115,6 +97,6 @@ jobs:
         tag_name: ${{ github.ref }}
         release_name: Release ${{ github.ref }}
         draft: false
-        prerelease: true
+        prerelease: false
 
 
