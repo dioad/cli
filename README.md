@@ -104,7 +104,7 @@ When running in Docker (detected by presence of `/.dockerenv`), the library uses
 Environment variables are automatically mapped from configuration keys:
 - Prefix: Application name (uppercase)
 - Separators: Hyphens and dots are converted to underscores
-- Example: `myapp_log_level` maps to `log.level`
+- Example: `MYAPP_LOG_LEVEL` maps to `log.level`
 
 ## Logging Configuration
 
