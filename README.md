@@ -112,7 +112,7 @@ The library includes built-in logging configuration using zerolog:
 
 ```go
 type Config struct {
-    Logging cli.CommonConfig `mapstructure:"log"`
+    cli.CommonConfig
 }
 ```
 
