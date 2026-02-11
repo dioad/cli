@@ -446,13 +446,13 @@ func TestUnmarshalConfig(t *testing.T) {
 	assert.NoErrorf(t, err, "UnmarshalConfig() error")
 
 	assert.Equal(t, cfg.Name, "test")
-	assert.Equal(t, cfg.Port, 8080)
-	assert.Equal(t, cfg.Duration, 60*time.Second)
+	assert.Equal(t, "test", cfg.Name)
+	assert.Equal(t, 8080, cfg.Port)
+	assert.Equal(t, 60*time.Second, cfg.Duration)
 
 	ip := net.ParseIP("1.2.3.4")
-	assert.Equal(t, cfg.IP, ip)
+	assert.Equal(t, ip, cfg.IP)
 
 	_, cidr, err := net.ParseCIDR("2.3.4.5/24")
-	assert.NoErrorf(t, err, "cidr parse error")
-	assert.Equal(t, cfg.CIDR, cidr)
+	assert.Equal(t, cidr, cfg.CIDR)
 }
