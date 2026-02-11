@@ -220,8 +220,8 @@ func ValidateName(name string) error {
 		return fmt.Errorf("name must not contain spaces")
 	}
 
-	specialCharts := "/\\:*?\"<>|(){}[]!@#$%^&*+=~`"
-	for _, char := range specialCharts {
+	specialChars := "/\\:*?\"<>|(){}[]!@#$%^&*+=~`"
+	for _, char := range specialChars {
 		if strings.Contains(name, string(char)) {
 			return fmt.Errorf("name must not contain special characters like %s", string(char))
 		}
