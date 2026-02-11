@@ -439,10 +439,12 @@ func TestUnmarshalConfig(t *testing.T) {
 	})
 	assert.NoErrorf(t, err, "flag parse error")
 
-	err = viper.BindPFlags(flags)
+	v := viper.New()
+
+	err = v.BindPFlags(flags)
 	assert.NoError(t, err)
 
-	err = cli.UnmarshalConfig(cfg)
+	err = cli.UnmarshalConfig(v, cfg)
 	assert.NoErrorf(t, err, "UnmarshalConfig() error")
 
 	assert.Equal(t, cfg.Name, "test")
@@ -454,5 +456,6 @@ func TestUnmarshalConfig(t *testing.T) {
 	assert.Equal(t, ip, cfg.IP)
 
 	_, cidr, err := net.ParseCIDR("2.3.4.5/24")
+	assert.NoError(t, err)
 	assert.Equal(t, cidr, cfg.CIDR)
 }

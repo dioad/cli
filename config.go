@@ -107,17 +107,19 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 		return nil, fmt.Errorf("error validating org and app name: %w", err)
 	}
 
-	viper.SetEnvPrefix(appName)
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v := viper.New()
 
-	err = viper.BindPFlags(cmd.Flags())
+	v.SetEnvPrefix(appName)
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+
+	err = v.BindPFlags(cmd.Flags())
 	if err != nil {
 		return nil, err
 	}
 
 	if cfgFile != "" {
 		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
+		v.SetConfigFile(cfgFile)
 	} else {
 		systemConfigPath := filepath.Join("/etc", orgName, appName)
 
@@ -131,14 +133,14 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 		fullCommandName := fmt.Sprintf("%v\n", strings.Join(commandParts(cmd), "-"))
 
 		// Search config in home directory with name "config" (without extension).
-		viper.SetConfigName(fullCommandName)
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(systemConfigPath)
-		viper.AddConfigPath(homeConfigPath)
+		v.SetConfigName(fullCommandName)
+		v.SetConfigType("yaml")
+		v.AddConfigPath(systemConfigPath)
+		v.AddConfigPath(homeConfigPath)
 	}
-	viper.AutomaticEnv()
+	v.AutomaticEnv()
 	// If a config file is found, read it in.
-	err = viper.ReadInConfig()
+	err = v.ReadInConfig()
 
 	// cobra.CheckErr(err)
 
@@ -150,25 +152,25 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 		//		Str("file", viper.ConfigFileUsed()).
 		//		Msg("error reading config")
 		// } else {
-		viper.WatchConfig()
+		v.WatchConfig()
 	}
 
 	var c CommonConfig
 
-	err = viper.Unmarshal(&c)
+	err = UnmarshalConfig(v, &c)
 	if err != nil {
 		return nil, err
 	}
 
 	logging.ConfigureCmdLogger(c.Logging)
 
-	err = UnmarshalConfig(cfg)
+	err = UnmarshalConfig(v, cfg)
 	if err != nil {
 		return &c, err
 	}
 
 	log.Logger.Debug().
-		Str("file", viper.ConfigFileUsed()).
+		Str("file", v.ConfigFileUsed()).
 		Interface("config", cfg).
 		Interface("common", c).
 		Msg("initialising")
@@ -180,14 +182,14 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 //
 // It uses a composed decode hook to handle special types like MaskedString, time.Duration,
 // net.IP, and net.IPNet. This allows for seamless unmarshalling of complex configuration fields.
-func UnmarshalConfig(c interface{}) error {
+func UnmarshalConfig(v *viper.Viper, c interface{}) error {
 	decodeHook := mapstructure.ComposeDecodeHookFunc(
 		util.MaskedStringDecodeHook,
 		mapstructure.StringToTimeDurationHookFunc(),
 		mapstructure.StringToIPHookFunc(),
 		mapstructure.StringToIPNetHookFunc(),
 	)
-	return viper.Unmarshal(c, viper.DecodeHook(decodeHook))
+	return v.Unmarshal(c, viper.DecodeHook(decodeHook))
 }
 
 // IsDocker detects if the application is running inside a Docker container.
