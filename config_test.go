@@ -1,8 +1,8 @@
-package cli_test
-
 // Package cli_test contains unit tests for the cli package.
 // TODO: need to remove reliance on file system for config path tests,
 // need to refactor to allow in-memory testing.
+package cli_test
+
 import (
 	"context"
 	"net"

@@ -102,10 +102,15 @@ func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsed
 // - Automatic logging configuration
 // - Configuration hot-reloading via Viper watchers
 func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg interface{}) (*CommonConfig, error) {
+	err := ValidateOrgAndAppName(orgName, appName)
+	if err != nil {
+		return nil, fmt.Errorf("error validating org and app name: %w", err)
+	}
+
 	viper.SetEnvPrefix(appName)
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 
-	err := viper.BindPFlags(cmd.Flags())
+	err = viper.BindPFlags(cmd.Flags())
 	if err != nil {
 		return nil, err
 	}
@@ -158,12 +163,6 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 	logging.ConfigureCmdLogger(c.Logging)
 
 	err = UnmarshalConfig(cfg)
-	//
-	// err = viper.Unmarshal(cfg,
-	// 	viper.DecodeHook(util.MaskedStringDecodeHook),
-	// 	viper.DecodeHook(mapstructure.StringToTimeDurationHookFunc()),
-	// 	viper.DecodeHook(mapstructure.StringToIPHookFunc()),
-	// 	viper.DecodeHook(mapstructure.StringToIPNetHookFunc()))
 	if err != nil {
 		return &c, err
 	}
@@ -177,6 +176,10 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 	return &c, nil
 }
 
+// UnmarshalConfig unmarshals Viper configuration into the provided struct with custom decode hooks.
+//
+// It uses a composed decode hook to handle special types like MaskedString, time.Duration,
+// net.IP, and net.IPNet. This allows for seamless unmarshalling of complex configuration fields.
 func UnmarshalConfig(c interface{}) error {
 	decodeHook := mapstructure.ComposeDecodeHookFunc(
 		util.MaskedStringDecodeHook,
@@ -199,6 +202,11 @@ func IsDocker() bool {
 	return false
 }
 
+// ValidateName checks that the provided name is valid for use in configuration paths.
+//
+// It ensures that the name is not empty, does not contain path separators,
+// does not start or end with spaces, and does not contain special characters.
+// This validation helps prevent directory traversal issues and ensures clean config paths.
 func ValidateName(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("name must not be empty")
@@ -374,6 +382,7 @@ func SetAppName(appName string) ContextOpt {
 	}
 }
 
+// OrgNameFromContext retrieves the organization name from the context.
 func OrgNameFromContext(ctx context.Context) string {
 	orgName, ok := ctx.Value(orgNameContextKey{}).(string)
 	if !ok {
@@ -382,6 +391,7 @@ func OrgNameFromContext(ctx context.Context) string {
 	return orgName
 }
 
+// AppNameFromContext retrieves the application name from the context.
 func AppNameFromContext(ctx context.Context) string {
 	appName, ok := ctx.Value(appNameContextKey{}).(string)
 	if !ok {
