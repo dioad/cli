@@ -208,6 +208,9 @@ func ValidateName(name string) error {
 		return fmt.Errorf("name must not contain path separators")
 	}
 
+	if name == "." || name == ".." {
+		return fmt.Errorf("name must not be '.' or '..'")
+	}
 	if strings.HasPrefix(name, " ") {
 		return fmt.Errorf("name must not start with a space")
 	}
