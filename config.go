@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/mitchellh/go-homedir"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -149,14 +150,20 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 
 	var c CommonConfig
 
-	err = viper.Unmarshal(&c) // , viper.DecodeHook(util.MaskedStringDecodeHook))
+	err = viper.Unmarshal(&c)
 	if err != nil {
 		return nil, err
 	}
 
 	logging.ConfigureCmdLogger(c.Logging)
 
-	err = viper.Unmarshal(cfg, viper.DecodeHook(util.MaskedStringDecodeHook))
+	err = UnmarshalConfig(cfg)
+	//
+	// err = viper.Unmarshal(cfg,
+	// 	viper.DecodeHook(util.MaskedStringDecodeHook),
+	// 	viper.DecodeHook(mapstructure.StringToTimeDurationHookFunc()),
+	// 	viper.DecodeHook(mapstructure.StringToIPHookFunc()),
+	// 	viper.DecodeHook(mapstructure.StringToIPNetHookFunc()))
 	if err != nil {
 		return &c, err
 	}
@@ -168,6 +175,16 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 		Msg("initialising")
 
 	return &c, nil
+}
+
+func UnmarshalConfig(c interface{}) error {
+	decodeHook := mapstructure.ComposeDecodeHookFunc(
+		util.MaskedStringDecodeHook,
+		mapstructure.StringToTimeDurationHookFunc(),
+		mapstructure.StringToIPHookFunc(),
+		mapstructure.StringToIPNetHookFunc(),
+	)
+	return viper.Unmarshal(c, viper.DecodeHook(decodeHook))
 }
 
 // IsDocker detects if the application is running inside a Docker container.
@@ -182,11 +199,63 @@ func IsDocker() bool {
 	return false
 }
 
+func ValidateName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("name must not be empty")
+	}
+
+	if strings.Contains(name, string(os.PathSeparator)) {
+		return fmt.Errorf("name must not contain path separators")
+	}
+
+	if strings.HasPrefix(name, " ") {
+		return fmt.Errorf("name must not start with a space")
+	}
+
+	if strings.HasSuffix(name, " ") {
+		return fmt.Errorf("name must not end with a space")
+	}
+
+	if strings.Contains(name, " ") {
+		return fmt.Errorf("name must not contain spaces")
+	}
+
+	specialCharts := "/\\:*?\"<>|(){}[]!@#$%^&*+=~`"
+	for _, char := range specialCharts {
+		if strings.Contains(name, string(char)) {
+			return fmt.Errorf("name must not contain special characters like %s", string(char))
+		}
+	}
+
+	return nil
+}
+
+// ValidateOrgAndAppName checks that orgName and appName do not contain path separators.
+//
+// This is important to prevent directory traversal issues when constructing config paths.
+
+func ValidateOrgAndAppName(orgName, appName string) error {
+	if err := ValidateName(orgName); err != nil {
+		return fmt.Errorf("invalid orgName: %w", err)
+	}
+
+	if err := ValidateName(appName); err != nil {
+		return fmt.Errorf("invalid appName: %w", err)
+	}
+
+	return nil
+}
+
 // DefaultUserConfigPath returns the default configuration directory for the user.
 //
 // For non-Docker environments, it returns $HOME/.config/{orgName}/{appName}
 // and creates the directory if it doesn't exist with 0700 permissions.
 func DefaultUserConfigPath(orgName, appName string) (string, error) {
+	err := ValidateOrgAndAppName(orgName, appName)
+	if err != nil {
+		return "", fmt.Errorf("error validating org and app name: %w", err)
+	}
+
 	currentUser, err := user.Current()
 	if err != nil {
 		return "", err
@@ -206,6 +275,11 @@ func DefaultUserConfigPath(orgName, appName string) (string, error) {
 func DefaultPersistencePath(orgName, appName string) (string, error) {
 	if IsDocker() {
 		return "/persist", nil
+	}
+
+	err := ValidateOrgAndAppName(orgName, appName)
+	if err != nil {
+		return "", fmt.Errorf("error validating org and app name: %w", err)
 	}
 
 	return DefaultUserConfigPath(orgName, appName)
@@ -295,7 +369,7 @@ func SetAppName(appName string) ContextOpt {
 	}
 }
 
-func getOrgName(ctx context.Context) string {
+func OrgNameFromContext(ctx context.Context) string {
 	orgName, ok := ctx.Value(orgNameContextKey{}).(string)
 	if !ok {
 		return ""
@@ -303,7 +377,7 @@ func getOrgName(ctx context.Context) string {
 	return orgName
 }
 
-func getAppName(ctx context.Context) string {
+func AppNameFromContext(ctx context.Context) string {
 	appName, ok := ctx.Value(appNameContextKey{}).(string)
 	if !ok {
 		return ""
@@ -320,8 +394,8 @@ type CobraOpt[T any] func(*T)
 // and passes configured values to the execution function.
 func CobraRunEWithConfig[T any](execFunc func(context.Context, *T) error, cfg *T) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		orgName := getOrgName(cmd.Context())
-		appName := getAppName(cmd.Context())
+		orgName := OrgNameFromContext(cmd.Context())
+		appName := AppNameFromContext(cmd.Context())
 
 		var configFile string
 		configFlag := cmd.Flag("config")
@@ -341,8 +415,8 @@ func CobraRunEWithConfig[T any](execFunc func(context.Context, *T) error, cfg *T
 // applies functional options to modify configuration, and passes configured values to the execution function.
 func CobraRunE[T any](execFunc func(*T) error, opt ...CobraOpt[T]) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		orgName := getOrgName(cmd.Context())
-		appName := getAppName(cmd.Context())
+		orgName := OrgNameFromContext(cmd.Context())
+		appName := AppNameFromContext(cmd.Context())
 
 		var cfg T
 
