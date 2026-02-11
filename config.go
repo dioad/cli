@@ -233,10 +233,12 @@ func ValidateName(name string) error {
 	return nil
 }
 
-// ValidateOrgAndAppName checks that orgName and appName do not contain path separators.
+// ValidateOrgAndAppName validates that orgName and appName are acceptable names.
 //
-// This is important to prevent directory traversal issues when constructing config paths.
-
+// It delegates to ValidateName, which ensures that names are non-empty, do not
+// contain path separators, spaces (including leading or trailing spaces), or
+// various special characters. This helps prevent issues when constructing
+// configuration paths and other filesystem-related operations.
 func ValidateOrgAndAppName(orgName, appName string) error {
 	if err := ValidateName(orgName); err != nil {
 		return fmt.Errorf("invalid orgName: %w", err)
