@@ -6,9 +6,10 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/dioad/cli"
 	"github.com/dioad/cli/logging"
-	"github.com/spf13/cobra"
 )
 
 // TestFullIntegration demonstrates a complete integration scenario.
@@ -60,10 +61,6 @@ func TestFullIntegration(t *testing.T) {
 	rootCmd.AddCommand(subCmd)
 
 	// Verify the structure
-	if rootCmd == nil {
-		t.Fatal("Root command is nil")
-	}
-
 	if len(rootCmd.Commands()) == 0 {
 		t.Error("No subcommands added")
 	}

@@ -281,11 +281,8 @@ func TestContext(t *testing.T) {
 
 // TestContextWithNilBase creates context with nil base context.
 func TestContextWithNilBase(t *testing.T) {
-	ctx := cli.Context(nil)
-
-	if ctx == nil {
-		t.Error("Context(nil) returned nil")
-	}
+	ctx := cli.Context(nil) //lint:ignore SA1012 specifically testing behaviour is nil is passed
+	assert.NotNil(t, ctx)
 
 	// Verify context is usable
 	select {
@@ -456,5 +453,6 @@ func TestUnmarshalConfig(t *testing.T) {
 	assert.Equal(t, cfg.IP, ip)
 
 	_, cidr, err := net.ParseCIDR("2.3.4.5/24")
+	assert.NoErrorf(t, err, "cidr parse error")
 	assert.Equal(t, cfg.CIDR, cidr)
 }
