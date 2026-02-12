@@ -1,14 +1,23 @@
+// Package cli_test contains unit tests for the cli package.
+// TODO: need to remove reliance on file system for config path tests,
+// need to refactor to allow in-memory testing.
 package cli_test
 
 import (
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/dioad/cli"
-	"github.com/spf13/cobra"
 )
 
 // TestIsDocker verifies Docker detection logic.
@@ -46,32 +55,101 @@ func TestIsDocker(t *testing.T) {
 	}
 }
 
+func TestValidateName(t *testing.T) {
+	tests := []struct {
+		label   string
+		name    string
+		wantErr bool
+	}{
+		{
+			label:   "valid names",
+			name:    "validname",
+			wantErr: false,
+		},
+		{
+			label:   "empty org name",
+			name:    "",
+			wantErr: true,
+		},
+		{
+			label:   "names with spaces",
+			name:    "org with spaces",
+			wantErr: true,
+		},
+		{
+			label:   "names with special characters",
+			name:    "org/\\:*?\"<>|(){}[]!@#$%^&*+=~`",
+			wantErr: true,
+		},
+		{
+			label:   "names with unicode characters",
+			name:    "组织",
+			wantErr: false, // Assuming unicode is allowed
+		},
+		{label: "names with dashes and underscores",
+			name:    "org-name_with-dash",
+			wantErr: false,
+		},
+		{
+			label:   "names with leading spaces",
+			name:    " orgname",
+			wantErr: true,
+		},
+		{
+			label:   "names with trailing spaces",
+			name:    "orgname ",
+			wantErr: true,
+		},
+		{
+			label:   "names with only spaces",
+			name:    "   ",
+			wantErr: true,
+		},
+		{
+			label:   "no path separators",
+			name:    "org/name",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.label, func(t *testing.T) {
+			err := cli.ValidateName(tt.name)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateName() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // TestDefaultUserConfigPath verifies config path generation and creation.
 func TestDefaultUserConfigPath(t *testing.T) {
 	orgName := "testorg"
 	appName := "testapp"
 
-	path, err := cli.DefaultUserConfigPath(orgName, appName)
+	filePath, err := cli.DefaultUserConfigPath(orgName, appName)
 	if err != nil {
 		t.Fatalf("DefaultUserConfigPath() error = %v", err)
 	}
 
-	if path == "" {
+	if filePath == "" {
 		t.Error("DefaultUserConfigPath() returned empty path")
 	}
 
 	// Verify directory was created
-	if _, err := os.Stat(path); err != nil {
+	if _, err := os.Stat(filePath); err != nil {
 		t.Fatalf("DefaultUserConfigPath() created path not found: %v", err)
 	}
 
 	// Verify path contains org and app names
-	if !strings.Contains(path, orgName) {
-		t.Errorf("DefaultUserConfigPath() path doesn't contain orgName: %s", path)
+	if !strings.Contains(filePath, orgName) {
+		t.Errorf("DefaultUserConfigPath() path doesn't contain orgName: %s", filePath)
 	}
 
-	// Cleanup
-	os.RemoveAll(path)
+	err = os.RemoveAll(filepath.Dir(filePath))
+	if err != nil {
+		t.Fatalf("Failed to cleanup persistence file: %v", err)
+	}
 }
 
 // TestDefaultConfigPath returns the correct path based on environment.
@@ -79,17 +157,17 @@ func TestDefaultConfigPath(t *testing.T) {
 	orgName := "testorg"
 	appName := "testapp"
 
-	path, err := cli.DefaultConfigPath(orgName, appName)
+	filePath, err := cli.DefaultConfigPath(orgName, appName)
 	if err != nil {
 		t.Fatalf("DefaultConfigPath() error = %v", err)
 	}
 
-	if path == "" {
+	if filePath == "" {
 		t.Error("DefaultConfigPath() returned empty path")
 	}
 
 	// Verify path is valid
-	if _, err := os.Stat(path); err != nil {
+	if _, err := os.Stat(filePath); err != nil {
 		if !os.IsNotExist(err) {
 			t.Fatalf("DefaultConfigPath() stat error: %v", err)
 		}
@@ -97,7 +175,10 @@ func TestDefaultConfigPath(t *testing.T) {
 	}
 
 	// Cleanup
-	os.RemoveAll(path)
+	err = os.RemoveAll(filepath.Dir(filePath))
+	if err != nil {
+		t.Fatalf("Failed to cleanup persistence file: %v", err)
+	}
 }
 
 // TestDefaultPersistencePath returns the correct path.
@@ -105,17 +186,20 @@ func TestDefaultPersistencePath(t *testing.T) {
 	orgName := "testorg"
 	appName := "testapp"
 
-	path, err := cli.DefaultPersistencePath(orgName, appName)
+	filePath, err := cli.DefaultPersistencePath(orgName, appName)
 	if err != nil {
 		t.Fatalf("DefaultPersistencePath() error = %v", err)
 	}
 
-	if path == "" {
+	if filePath == "" {
 		t.Error("DefaultPersistencePath() returned empty path")
 	}
 
 	// Cleanup
-	os.RemoveAll(path)
+	err = os.RemoveAll(filepath.Dir(filePath))
+	if err != nil {
+		t.Fatalf("Failed to cleanup persistence file: %v", err)
+	}
 }
 
 // TestDefaultConfigFile returns the correct file path.
@@ -139,7 +223,10 @@ func TestDefaultConfigFile(t *testing.T) {
 	}
 
 	// Cleanup
-	os.RemoveAll(filepath.Dir(filePath))
+	err = os.RemoveAll(filepath.Dir(filePath))
+	if err != nil {
+		t.Fatalf("Failed to cleanup persistence file: %v", err)
+	}
 }
 
 // TestDefaultPersistenceFile returns the correct file path.
@@ -162,7 +249,10 @@ func TestDefaultPersistenceFile(t *testing.T) {
 	}
 
 	// Cleanup
-	os.RemoveAll(filepath.Dir(filePath))
+	err = os.RemoveAll(filepath.Dir(filePath))
+	if err != nil {
+		t.Fatalf("Failed to cleanup persistence file: %v", err)
+	}
 }
 
 // TestContext creates and retrieves context values.
@@ -191,11 +281,8 @@ func TestContext(t *testing.T) {
 
 // TestContextWithNilBase creates context with nil base context.
 func TestContextWithNilBase(t *testing.T) {
-	ctx := cli.Context(nil)
-
-	if ctx == nil {
-		t.Error("Context(nil) returned nil")
-	}
+	ctx := cli.Context(nil) //lint:ignore SA1012 specifically testing behaviour is nil is passed
+	assert.NotNil(t, ctx)
 
 	// Verify context is usable
 	select {
@@ -262,7 +349,7 @@ func TestNewCommand(t *testing.T) {
 	)
 
 	if cmd == nil {
-		t.Error("NewCommand() returned nil command")
+		t.Fatal("NewCommand() returned nil command")
 	}
 
 	if cmd.Use != "test" {
@@ -294,13 +381,13 @@ func TestNewCommandWithConfigFlag(t *testing.T) {
 	)
 
 	if cmd == nil {
-		t.Error("NewCommand() returned nil")
+		t.Fatal("NewCommand() returned nil")
 	}
 
 	// Verify config flag was added
 	configFlag := cmd.Flag("config")
 	if configFlag == nil {
-		t.Error("NewCommand() did not add config flag")
+		t.Fatal("NewCommand() did not add config flag")
 	}
 
 	if configFlag.Shorthand != "c" {
@@ -317,10 +404,58 @@ func TestWithConfigFlag(t *testing.T) {
 
 	configFlag := cmd.Flag("config")
 	if configFlag == nil {
-		t.Error("WithConfigFlag() did not add config flag")
+		t.Fatal("WithConfigFlag() did not add config flag")
 	}
 
 	if configFlag.DefValue != "my-config.yaml" {
 		t.Errorf("config flag default = %s, want my-config.yaml", configFlag.DefValue)
 	}
+}
+
+func TestUnmarshalConfig(t *testing.T) {
+	type TestConfig struct {
+		Name     string        `mapstructure:"name"`
+		Port     int           `mapstructure:"port"`
+		Duration time.Duration `mapstructure:"duration"`
+		IP       net.IP        `mapstructure:"ip"`
+		CIDR     *net.IPNet    `mapstructure:"cidr"`
+	}
+
+	cfg := &TestConfig{}
+
+	flags := &pflag.FlagSet{}
+	flags.String("name", "", "")
+	flags.String("port", "", "")
+	flags.String("duration", "", "")
+	flags.String("ip", "", "")
+	flags.String("cidr", "", "")
+
+	err := flags.Parse([]string{
+		"--name=test",
+		"--port=8080",
+		"--duration=60s",
+		"--ip=1.2.3.4",
+		"--cidr=2.3.4.5/24",
+	})
+	assert.NoErrorf(t, err, "flag parse error")
+
+	v := viper.New()
+
+	err = v.BindPFlags(flags)
+	assert.NoError(t, err)
+
+	err = cli.UnmarshalConfig(v, cfg)
+	assert.NoErrorf(t, err, "UnmarshalConfig() error")
+
+	assert.Equal(t, cfg.Name, "test")
+	assert.Equal(t, "test", cfg.Name)
+	assert.Equal(t, 8080, cfg.Port)
+	assert.Equal(t, 60*time.Second, cfg.Duration)
+
+	ip := net.ParseIP("1.2.3.4")
+	assert.Equal(t, ip, cfg.IP)
+
+	_, cidr, err := net.ParseCIDR("2.3.4.5/24")
+	assert.NoError(t, err)
+	assert.Equal(t, cidr, cfg.CIDR)
 }

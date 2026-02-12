@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/mitchellh/go-homedir"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -101,17 +102,24 @@ func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsed
 // - Automatic logging configuration
 // - Configuration hot-reloading via Viper watchers
 func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg interface{}) (*CommonConfig, error) {
-	viper.SetEnvPrefix(appName)
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	err := ValidateOrgAndAppName(orgName, appName)
+	if err != nil {
+		return nil, fmt.Errorf("error validating org and app name: %w", err)
+	}
 
-	err := viper.BindPFlags(cmd.Flags())
+	v := viper.New()
+
+	v.SetEnvPrefix(appName)
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+
+	err = v.BindPFlags(cmd.Flags())
 	if err != nil {
 		return nil, err
 	}
 
 	if cfgFile != "" {
 		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
+		v.SetConfigFile(cfgFile)
 	} else {
 		systemConfigPath := filepath.Join("/etc", orgName, appName)
 
@@ -125,14 +133,14 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 		fullCommandName := fmt.Sprintf("%v\n", strings.Join(commandParts(cmd), "-"))
 
 		// Search config in home directory with name "config" (without extension).
-		viper.SetConfigName(fullCommandName)
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(systemConfigPath)
-		viper.AddConfigPath(homeConfigPath)
+		v.SetConfigName(fullCommandName)
+		v.SetConfigType("yaml")
+		v.AddConfigPath(systemConfigPath)
+		v.AddConfigPath(homeConfigPath)
 	}
-	viper.AutomaticEnv()
+	v.AutomaticEnv()
 	// If a config file is found, read it in.
-	err = viper.ReadInConfig()
+	err = v.ReadInConfig()
 
 	// cobra.CheckErr(err)
 
@@ -144,30 +152,44 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 		//		Str("file", viper.ConfigFileUsed()).
 		//		Msg("error reading config")
 		// } else {
-		viper.WatchConfig()
+		v.WatchConfig()
 	}
 
 	var c CommonConfig
 
-	err = viper.Unmarshal(&c) // , viper.DecodeHook(util.MaskedStringDecodeHook))
+	err = UnmarshalConfig(v, &c)
 	if err != nil {
 		return nil, err
 	}
 
 	logging.ConfigureCmdLogger(c.Logging)
 
-	err = viper.Unmarshal(cfg, viper.DecodeHook(util.MaskedStringDecodeHook))
+	err = UnmarshalConfig(v, cfg)
 	if err != nil {
 		return &c, err
 	}
 
 	log.Logger.Debug().
-		Str("file", viper.ConfigFileUsed()).
+		Str("file", v.ConfigFileUsed()).
 		Interface("config", cfg).
 		Interface("common", c).
 		Msg("initialising")
 
 	return &c, nil
+}
+
+// UnmarshalConfig unmarshals Viper configuration into the provided struct with custom decode hooks.
+//
+// It uses a composed decode hook to handle special types like MaskedString, time.Duration,
+// net.IP, and net.IPNet. This allows for seamless unmarshalling of complex configuration fields.
+func UnmarshalConfig(v *viper.Viper, c interface{}) error {
+	decodeHook := mapstructure.ComposeDecodeHookFunc(
+		util.MaskedStringDecodeHook,
+		mapstructure.StringToTimeDurationHookFunc(),
+		mapstructure.StringToIPHookFunc(),
+		mapstructure.StringToIPNetHookFunc(),
+	)
+	return v.Unmarshal(c, viper.DecodeHook(decodeHook))
 }
 
 // IsDocker detects if the application is running inside a Docker container.
@@ -182,11 +204,73 @@ func IsDocker() bool {
 	return false
 }
 
+// ValidateName checks that the provided name is valid for use in configuration paths.
+//
+// It ensures that the name is not empty, does not contain path separators,
+// does not start or end with spaces, and does not contain special characters.
+// This validation helps prevent directory traversal issues and ensures clean config paths.
+func ValidateName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("name must not be empty")
+	}
+
+	if strings.Contains(name, string(os.PathSeparator)) {
+		return fmt.Errorf("name must not contain path separators")
+	}
+
+	if name == "." || name == ".." {
+		return fmt.Errorf("name must not be '.' or '..'")
+	}
+	if strings.HasPrefix(name, " ") {
+		return fmt.Errorf("name must not start with a space")
+	}
+
+	if strings.HasSuffix(name, " ") {
+		return fmt.Errorf("name must not end with a space")
+	}
+
+	if strings.Contains(name, " ") {
+		return fmt.Errorf("name must not contain spaces")
+	}
+
+	specialChars := "/\\:*?\"<>|(){}[]!@#$%^&*+=~`"
+	for _, char := range specialChars {
+		if strings.Contains(name, string(char)) {
+			return fmt.Errorf("name must not contain special characters like %s", string(char))
+		}
+	}
+
+	return nil
+}
+
+// ValidateOrgAndAppName validates that orgName and appName are acceptable names.
+//
+// It delegates to ValidateName, which ensures that names are non-empty, do not
+// contain path separators, spaces (including leading or trailing spaces), or
+// various special characters. This helps prevent issues when constructing
+// configuration paths and other filesystem-related operations.
+func ValidateOrgAndAppName(orgName, appName string) error {
+	if err := ValidateName(orgName); err != nil {
+		return fmt.Errorf("invalid orgName: %w", err)
+	}
+
+	if err := ValidateName(appName); err != nil {
+		return fmt.Errorf("invalid appName: %w", err)
+	}
+
+	return nil
+}
+
 // DefaultUserConfigPath returns the default configuration directory for the user.
 //
 // For non-Docker environments, it returns $HOME/.config/{orgName}/{appName}
 // and creates the directory if it doesn't exist with 0700 permissions.
 func DefaultUserConfigPath(orgName, appName string) (string, error) {
+	err := ValidateOrgAndAppName(orgName, appName)
+	if err != nil {
+		return "", fmt.Errorf("error validating org and app name: %w", err)
+	}
+
 	currentUser, err := user.Current()
 	if err != nil {
 		return "", err
@@ -206,6 +290,11 @@ func DefaultUserConfigPath(orgName, appName string) (string, error) {
 func DefaultPersistencePath(orgName, appName string) (string, error) {
 	if IsDocker() {
 		return "/persist", nil
+	}
+
+	err := ValidateOrgAndAppName(orgName, appName)
+	if err != nil {
+		return "", fmt.Errorf("error validating org and app name: %w", err)
 	}
 
 	return DefaultUserConfigPath(orgName, appName)
@@ -295,7 +384,8 @@ func SetAppName(appName string) ContextOpt {
 	}
 }
 
-func getOrgName(ctx context.Context) string {
+// OrgNameFromContext retrieves the organization name from the context.
+func OrgNameFromContext(ctx context.Context) string {
 	orgName, ok := ctx.Value(orgNameContextKey{}).(string)
 	if !ok {
 		return ""
@@ -303,7 +393,8 @@ func getOrgName(ctx context.Context) string {
 	return orgName
 }
 
-func getAppName(ctx context.Context) string {
+// AppNameFromContext retrieves the application name from the context.
+func AppNameFromContext(ctx context.Context) string {
 	appName, ok := ctx.Value(appNameContextKey{}).(string)
 	if !ok {
 		return ""
@@ -320,8 +411,8 @@ type CobraOpt[T any] func(*T)
 // and passes configured values to the execution function.
 func CobraRunEWithConfig[T any](execFunc func(context.Context, *T) error, cfg *T) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		orgName := getOrgName(cmd.Context())
-		appName := getAppName(cmd.Context())
+		orgName := OrgNameFromContext(cmd.Context())
+		appName := AppNameFromContext(cmd.Context())
 
 		var configFile string
 		configFlag := cmd.Flag("config")
@@ -341,8 +432,8 @@ func CobraRunEWithConfig[T any](execFunc func(context.Context, *T) error, cfg *T
 // applies functional options to modify configuration, and passes configured values to the execution function.
 func CobraRunE[T any](execFunc func(*T) error, opt ...CobraOpt[T]) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		orgName := getOrgName(cmd.Context())
-		appName := getAppName(cmd.Context())
+		orgName := OrgNameFromContext(cmd.Context())
+		appName := AppNameFromContext(cmd.Context())
 
 		var cfg T
 
