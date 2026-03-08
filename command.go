@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/urfave/sflags"
 	"github.com/urfave/sflags/gen/gpflag"
@@ -14,9 +16,11 @@ import (
 // populating flags from the config struct, and executing the command with
 // configuration management.
 func NewCommand[T any](cmd *cobra.Command, runFunc func(context.Context, *T) error, defaultConfig *T, opts ...CommandOpt) *cobra.Command {
-	cmd.RunE = CobraRunEWithConfig(runFunc, defaultConfig)
+	cmd.RunE = CobraRunE(runFunc)
 
-	_ = gpflag.ParseTo(defaultConfig, cmd.Flags(), sflags.InheritDeprecated(), sflags.InheritHidden())
+	if err := gpflag.ParseTo(defaultConfig, cmd.Flags(), sflags.InheritDeprecated(), sflags.InheritHidden()); err != nil {
+		panic(fmt.Sprintf("cli: failed to register flags from config type: %v", err))
+	}
 
 	for _, opt := range opts {
 		opt(cmd)
@@ -32,5 +36,12 @@ type CommandOpt func(*cobra.Command)
 func WithConfigFlag(defaultConfigFile string) func(*cobra.Command) {
 	return func(cmd *cobra.Command) {
 		cmd.Flags().StringP("config", "c", defaultConfigFile, "config file")
+	}
+}
+
+// WithGlobalZerologLevel returns a CommandOpt that sets the global zerolog log level.
+func WithGlobalZerologLevel(level zerolog.Level) CommandOpt {
+	return func(_ *cobra.Command) {
+		zerolog.SetGlobalLevel(level)
 	}
 }

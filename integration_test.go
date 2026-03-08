@@ -2,18 +2,21 @@ package cli_test
 
 import (
 	"context"
-	"os"
-	"os/exec"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/dioad/cli"
 	"github.com/dioad/cli/logging"
 )
 
-// TestFullIntegration demonstrates a complete integration scenario.
-func TestFullIntegration(t *testing.T) {
+// TestCommandTreeExecution demonstrates a complete integration scenario:
+// a root command with a subcommand is built and actually executed, verifying
+// that the execFunc is called (Inspiring, Behavioral).
+func TestCommandTreeExecution(t *testing.T) {
 	type AppConfig struct {
 		cli.CommonConfig
 		AppName string `mapstructure:"app-name"`
@@ -24,16 +27,16 @@ func TestFullIntegration(t *testing.T) {
 		AppName: "testapp",
 		Version: "1.0.0",
 		CommonConfig: cli.CommonConfig{
-			Logging: logging.Config{
-				Level: "info",
-			},
+			Logging: logging.Config{Level: "info"},
 		},
 	}
 
-	// Create a root command with context
+	var called bool
+
 	rootCmd := &cobra.Command{
-		Use:   "testapp",
-		Short: "Test application",
+		Use:          "testapp",
+		Short:        "Test application",
+		SilenceUsage: true,
 	}
 
 	ctx := cli.Context(
@@ -41,67 +44,103 @@ func TestFullIntegration(t *testing.T) {
 		cli.SetOrgName("testorg"),
 		cli.SetAppName("testapp"),
 	)
-	rootCmd.SetContext(ctx)
 
-	// Add a subcommand
 	subCmd := cli.NewCommand(
-		&cobra.Command{
-			Use:   "action",
-			Short: "Perform an action",
-		},
+		&cobra.Command{Use: "action", Short: "Perform an action"},
 		func(ctx context.Context, c *AppConfig) error {
-			if c.AppName == "" {
-				t.Error("AppName not set")
-			}
+			called = true
+			assert.NotEmpty(t, c.AppName, "AppName should be populated from flag defaults")
 			return nil
 		},
 		cfg,
 	)
-
 	rootCmd.AddCommand(subCmd)
 
-	// Verify the structure
-	if len(rootCmd.Commands()) == 0 {
-		t.Error("No subcommands added")
-	}
+	// Act — actually execute the command tree, not just inspect its structure.
+	rootCmd.SetArgs([]string{"action"})
+	err := rootCmd.ExecuteContext(ctx)
 
-	if rootCmd.Commands()[0].Use != "action" {
-		t.Errorf("Wrong subcommand: %s", rootCmd.Commands()[0].Use)
-	}
+	// Assert
+	require.NoError(t, err, "executing the action subcommand should not error")
+	assert.True(t, called, "execFunc should have been called during command execution")
 }
 
-// TestCommandWithDefaultConfig verifies command execution with defaults.
+// TestCommandWithDefaultConfig verifies that execFunc receives the config
+// values derived from flag defaults when no explicit flags are provided.
 func TestCommandWithDefaultConfig(t *testing.T) {
 	type ServerConfig struct {
 		Host string `mapstructure:"host"`
 		Port int    `mapstructure:"port"`
 	}
 
-	cfg := &ServerConfig{
+	defaults := &ServerConfig{
 		Host: "localhost",
 		Port: 8080,
 	}
 
+	var gotHost string
+	var gotPort int
+
 	cmd := cli.NewCommand(
 		&cobra.Command{
-			Use: "serve",
+			Use:          "serve",
+			SilenceUsage: true,
 		},
 		func(ctx context.Context, c *ServerConfig) error {
-			if c.Host != cfg.Host || c.Port != cfg.Port {
-				t.Error("Config not passed correctly")
-			}
+			gotHost = c.Host
+			gotPort = c.Port
 			return nil
 		},
-		cfg,
+		defaults,
 	)
 
-	if cmd == nil {
-		t.Fatal("NewCommand returned nil")
-	}
+	ctx := cli.Context(
+		context.Background(),
+		cli.SetOrgName("testorg"),
+		cli.SetAppName("testapp"),
+	)
 
-	if cmd.RunE == nil {
-		t.Fatal("RunE was not set")
-	}
+	// Act — execute the command with no explicit flag values.
+	cmd.SetArgs([]string{})
+	err := cmd.ExecuteContext(ctx)
+
+	// Assert
+	require.NoError(t, err, "executing the command with defaults should not error")
+	assert.Equal(t, defaults.Host, gotHost,
+		"host should match the default value registered from the config struct")
+	assert.Equal(t, defaults.Port, gotPort,
+		"port should match the default value registered from the config struct")
+}
+
+// TestCobraRunERequiresContext verifies that CobraRunE returns an error rather
+// than calling os.Exit when org/app names are absent from the context.
+func TestCobraRunERequiresContext(t *testing.T) {
+	type Config struct{}
+	var called bool
+
+	cmd := cli.NewCommand(
+		&cobra.Command{
+			Use:           "test",
+			SilenceUsage:  true,
+			SilenceErrors: true,
+		},
+		func(ctx context.Context, c *Config) error {
+			called = true
+			return nil
+		},
+		&Config{},
+	)
+
+	// No org/app name — plain background context.
+	cmd.SetArgs([]string{})
+	err := cmd.ExecuteContext(context.Background())
+
+	assert.Error(t, err,
+		"CobraRunE should return an error when org/app name is not set in context")
+	assert.ErrorContains(t, err, "org name",
+		"error should mention that org name is missing")
+	assert.False(t, called,
+		"execFunc should not have been called when context is incomplete")
 }
 
 // TestContextPropagation verifies context values are correctly propagated.
@@ -115,13 +154,44 @@ func TestContextPropagation(t *testing.T) {
 		cli.SetAppName(appName),
 	)
 
-	// Verify we can create commands with this context
 	cmd := &cobra.Command{Use: "test"}
 	cmd.SetContext(ctx)
 
-	if cmd.Context() == nil {
-		t.Error("Context not set on command")
+	require.NotNil(t, cmd.Context(), "context should be set on the command")
+	assert.Equal(t, orgName, cli.OrgNameFromContext(cmd.Context()),
+		"org name should be retrievable from the command context")
+	assert.Equal(t, appName, cli.AppNameFromContext(cmd.Context()),
+		"app name should be retrievable from the command context")
+}
+
+// TestEnvironmentIntegration verifies that environment variables are
+// correctly read and applied by InitViperConfigWithFlagSet.
+func TestEnvironmentIntegration(t *testing.T) {
+	type Config struct {
+		Debug bool   `mapstructure:"debug"`
+		Host  string `mapstructure:"host"`
 	}
+
+	// Arrange — use t.Setenv so the env vars are automatically cleaned up.
+	t.Setenv("ENVTEST_DEBUG", "true")
+	t.Setenv("ENVTEST_HOST", "env-host")
+
+	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	flags.Bool("debug", false, "enable debug")
+	flags.String("host", "localhost", "host")
+	require.NoError(t, flags.Parse(nil), "flag parse should not fail")
+
+	var cfg Config
+
+	// Act
+	err := cli.InitViperConfigWithFlagSet("testorg", "envtest", &cfg, flags)
+
+	// Assert
+	require.NoError(t, err, "env var configuration should not error")
+	assert.True(t, cfg.Debug,
+		"ENVTEST_DEBUG=true should set debug to true")
+	assert.Equal(t, "env-host", cfg.Host,
+		"ENVTEST_HOST should override the default flag value")
 }
 
 // BenchmarkNewCommand measures command creation performance.
@@ -136,9 +206,7 @@ func BenchmarkNewCommand(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		cli.NewCommand(
 			&cobra.Command{Use: "test"},
-			func(ctx context.Context, c *Config) error {
-				return nil
-			},
+			func(ctx context.Context, c *Config) error { return nil },
 			cfg,
 		)
 	}
@@ -159,25 +227,5 @@ func BenchmarkContext(b *testing.B) {
 func BenchmarkDefaultConfigPath(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, _ = cli.DefaultConfigPath("org", "app")
-	}
-}
-
-// TestEnvironmentIntegration verifies environment variable handling.
-func TestEnvironmentIntegration(t *testing.T) {
-	// This test demonstrates how environment variables would be handled
-	// In actual use, users would set environment variables before running the app
-
-	originalEnv := os.Getenv("TESTAPP_DEBUG")
-	defer func() {
-		if originalEnv != "" {
-			os.Setenv("TESTAPP_DEBUG", originalEnv)
-		} else {
-			os.Unsetenv("TESTAPP_DEBUG")
-		}
-	}()
-
-	// Verify environment is accessible
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("go executable not found")
 	}
 }

@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/mitchellh/go-homedir"
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -48,7 +47,7 @@ func commandParts(cmd *cobra.Command) []string {
 // 2. Explicit config file (--config flag)
 // 3. Environment variables (prefixed with appName)
 // 4. Config files in standard locations
-func InitViperConfig(orgName, appName string, cfg interface{}) error {
+func InitViperConfig(orgName, appName string, cfg any) error {
 	pflag.Parse()
 	return InitViperConfigWithFlagSet(orgName, appName, cfg, pflag.CommandLine)
 }
@@ -58,7 +57,7 @@ func InitViperConfig(orgName, appName string, cfg interface{}) error {
 // Similar to InitViperConfig but allows specifying a custom pflag.FlagSet
 // instead of using the global command line flags. Useful for embedding
 // configuration initialization in library code or tests.
-func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsedFlagSet *pflag.FlagSet) error {
+func InitViperConfigWithFlagSet(orgName, appName string, cfg any, parsedFlagSet *pflag.FlagSet) error {
 	err := viper.BindPFlags(parsedFlagSet)
 	if err != nil {
 		return fmt.Errorf("error binding persistent flags: %w", err)
@@ -81,16 +80,51 @@ func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsed
 	if err != nil { // Handle errors reading the config file
 		var configFileNotFoundError viper.ConfigFileNotFoundError
 		if !errors.As(err, &configFileNotFoundError) {
-			return fmt.Errorf("fatal error reading config file: %s", err)
+			return fmt.Errorf("fatal error reading config file: %w", err)
 		}
 	}
 
 	err = viper.Unmarshal(cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("error unmarshalling config: %w", err)
 	}
 
 	return nil
+}
+
+// InitConfigOption is a functional option for customising InitConfig behaviour.
+type InitConfigOption func(*initConfigOptions)
+
+type initConfigOptions struct {
+	configureLogging bool
+	watchConfig      bool
+}
+
+func defaultInitConfigOptions() initConfigOptions {
+	return initConfigOptions{
+		configureLogging: true,
+		watchConfig:      true,
+	}
+}
+
+// WithoutLogging disables automatic logging configuration during InitConfig.
+//
+// By default, InitConfig configures the global logger via ConfigureCmdLogger.
+// Use this option in tests or when managing logging independently.
+func WithoutLogging() InitConfigOption {
+	return func(o *initConfigOptions) {
+		o.configureLogging = false
+	}
+}
+
+// WithoutWatchConfig disables automatic configuration hot-reloading during InitConfig.
+//
+// By default, InitConfig calls WatchConfig when a config file is found, which
+// starts a background goroutine. Use this option in tests to prevent that.
+func WithoutWatchConfig() InitConfigOption {
+	return func(o *initConfigOptions) {
+		o.watchConfig = false
+	}
 }
 
 // InitConfig loads and initializes configuration from multiple sources.
@@ -99,9 +133,14 @@ func InitViperConfigWithFlagSet(orgName, appName string, cfg interface{}, parsed
 // - Hierarchical command-based config file naming
 // - Flag binding from the Cobra command
 // - Environment variable overrides
-// - Automatic logging configuration
-// - Configuration hot-reloading via Viper watchers
-func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg interface{}) (*CommonConfig, error) {
+// - Automatic logging configuration (disable with WithoutLogging)
+// - Configuration hot-reloading via Viper watchers (disable with WithoutWatchConfig)
+func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...InitConfigOption) (*CommonConfig, error) {
+	options := defaultInitConfigOptions()
+	for _, o := range opts {
+		o(&options)
+	}
+
 	err := ValidateOrgAndAppName(orgName, appName)
 	if err != nil {
 		return nil, fmt.Errorf("error validating org and app name: %w", err)
@@ -117,11 +156,18 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 		return nil, err
 	}
 
+	var cfgFile string
+	configFlag := cmd.Flag("config")
+	if configFlag != nil {
+		cfgFile = configFlag.Value.String()
+	}
+
 	if cfgFile != "" {
 		// Use config file from the flag.
 		v.SetConfigFile(cfgFile)
 	} else {
 		systemConfigPath := filepath.Join("/etc", orgName, appName)
+		v.AddConfigPath(systemConfigPath)
 
 		homeConfigPath := "/config"
 		// Find home directory.
@@ -129,29 +175,27 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 		if err == nil {
 			homeConfigPath = filepath.Join(home, ".config", orgName, appName)
 		}
+		v.AddConfigPath(homeConfigPath)
 
-		fullCommandName := fmt.Sprintf("%v\n", strings.Join(commandParts(cmd), "-"))
+		fullCommandName := strings.Join(commandParts(cmd), "-")
 
 		// Search config in home directory with name "config" (without extension).
 		v.SetConfigName(fullCommandName)
 		v.SetConfigType("yaml")
-		v.AddConfigPath(systemConfigPath)
-		v.AddConfigPath(homeConfigPath)
 	}
+
 	v.AutomaticEnv()
+
 	// If a config file is found, read it in.
 	err = v.ReadInConfig()
+	if err != nil {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFoundError) {
+			return nil, fmt.Errorf("fatal error reading config file: %w", err)
+		}
+	}
 
-	// cobra.CheckErr(err)
-
-	// viper.AutomaticEnv() // read in environment variables that match
-	if err == nil {
-		// Commenting this bit out as I don't like the error
-		// when running commands like `version`
-		//	log.Trace().Err(err).
-		//		Str("file", viper.ConfigFileUsed()).
-		//		Msg("error reading config")
-		// } else {
+	if err == nil && options.watchConfig {
 		v.WatchConfig()
 	}
 
@@ -162,18 +206,14 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 		return nil, err
 	}
 
-	logging.ConfigureCmdLogger(c.Logging)
+	if options.configureLogging {
+		logging.ConfigureCmdLogger(c.Logging)
+	}
 
 	err = UnmarshalConfig(v, cfg)
 	if err != nil {
 		return &c, err
 	}
-
-	log.Logger.Debug().
-		Str("file", v.ConfigFileUsed()).
-		Interface("config", cfg).
-		Interface("common", c).
-		Msg("initialising")
 
 	return &c, nil
 }
@@ -182,7 +222,7 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfgFile string, cfg
 //
 // It uses a composed decode hook to handle special types like MaskedString, time.Duration,
 // net.IP, and net.IPNet. This allows for seamless unmarshalling of complex configuration fields.
-func UnmarshalConfig(v *viper.Viper, c interface{}) error {
+func UnmarshalConfig(v *viper.Viper, c any) error {
 	decodeHook := mapstructure.ComposeDecodeHookFunc(
 		util.MaskedStringDecodeHook,
 		mapstructure.StringToTimeDurationHookFunc(),
@@ -345,11 +385,6 @@ type CommonConfig struct {
 	Logging logging.Config `mapstructure:"log"`
 }
 
-type Config[T any] struct {
-	CommonConfig
-	Config *T
-}
-
 type orgNameContextKey struct{}
 type appNameContextKey struct{}
 
@@ -405,35 +440,18 @@ func AppNameFromContext(ctx context.Context) string {
 // CobraOpt is a functional option for configuring command execution.
 type CobraOpt[T any] func(*T)
 
-// CobraRunEWithConfig returns a Cobra RunE function that loads configuration before execution.
-//
-// The returned function handles configuration loading, application metadata retrieval,
-// and passes configured values to the execution function.
-func CobraRunEWithConfig[T any](execFunc func(context.Context, *T) error, cfg *T) func(cmd *cobra.Command, args []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		orgName := OrgNameFromContext(cmd.Context())
-		appName := AppNameFromContext(cmd.Context())
-
-		var configFile string
-		configFlag := cmd.Flag("config")
-		if configFlag != nil {
-			configFile = configFlag.Value.String()
-		}
-		_, err := InitConfig(orgName, appName, cmd, configFile, cfg)
-		cobra.CheckErr(err)
-
-		return execFunc(cmd.Context(), cfg)
-	}
-}
-
 // CobraRunE returns a Cobra RunE function with configuration management and functional options.
 //
 // The returned function handles configuration initialization with org and app names from context,
 // applies functional options to modify configuration, and passes configured values to the execution function.
-func CobraRunE[T any](execFunc func(*T) error, opt ...CobraOpt[T]) func(cmd *cobra.Command, args []string) error {
+func CobraRunE[T any](execFunc func(context.Context, *T) error, opt ...CobraOpt[T]) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		orgName := OrgNameFromContext(cmd.Context())
 		appName := AppNameFromContext(cmd.Context())
+
+		if orgName == "" || appName == "" {
+			return fmt.Errorf("cli: org name and app name must be set in context via SetOrgName/SetAppName")
+		}
 
 		var cfg T
 
@@ -441,9 +459,11 @@ func CobraRunE[T any](execFunc func(*T) error, opt ...CobraOpt[T]) func(cmd *cob
 			o(&cfg)
 		}
 
-		_, err := InitConfig(orgName, appName, cmd, "", &cfg)
-		cobra.CheckErr(err)
+		_, err := InitConfig(orgName, appName, cmd, &cfg)
+		if err != nil {
+			return err
+		}
 
-		return execFunc(&cfg)
+		return execFunc(cmd.Context(), &cfg)
 	}
 }

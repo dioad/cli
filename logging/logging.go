@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"fmt"
 	"io"
 	defaultLog "log"
 	"os"
@@ -78,7 +79,11 @@ func ConfigureLogLevel(levelString string, defaultLogLevel zerolog.Level) {
 }
 
 func isConsoleWriter(f *os.File) bool {
-	fileInfo, _ := f.Stat()
+	fileInfo, err := f.Stat()
+	if err != nil {
+		// If we can't stat the file, assume it is not a console (e.g. piped output).
+		return false
+	}
 	return (fileInfo.Mode() & os.ModeCharDevice) != 0
 }
 
@@ -86,20 +91,16 @@ func isConsoleWriter(f *os.File) bool {
 //
 // The provided Config struct must specify the File path and optional rotation settings.
 // File paths support home directory expansion (e.g., "~/.app/logs/app.log").
-func ConfigureLogFileOutput(c Config) io.Writer {
+func ConfigureLogFileOutput(c Config) (io.Writer, error) {
 	expandedDir, err := homedir.Expand(c.File)
 	if err != nil {
-		log.Error().
-			Str("filePath", c.File).
-			Err(err).
-			Msg("unable to expand log file path")
-		return nil
+		return nil, fmt.Errorf("unable to expand log file path %q: %w", c.File, err)
 	}
 
 	filePath := filepath.Clean(expandedDir)
 
 	logOutput := &lumberjack.Logger{
-		Filename:   filepath.Clean(filePath),
+		Filename:   filePath,
 		MaxSize:    c.MaxSize,
 		MaxBackups: c.MaxBackups,
 		MaxAge:     c.MaxAge,
@@ -107,7 +108,7 @@ func ConfigureLogFileOutput(c Config) io.Writer {
 		Compress:   c.Compress,
 	}
 
-	return logOutput
+	return logOutput, nil
 }
 
 // ConfigureLogOutput sets up the global zerolog logger output.
@@ -130,7 +131,12 @@ func ConfigureLogOutput(c Config) {
 	// if a log file has been configured set it up and
 	// overwrite default logger
 	if c.File != "" {
-		logOutput = ConfigureLogFileOutput(c)
+		fileOutput, err := ConfigureLogFileOutput(c)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to configure log file output, falling back to stdout")
+		} else {
+			logOutput = fileOutput
+		}
 	}
 	log.Logger = zerolog.New(logOutput).With().Timestamp().Logger()
 
