@@ -2,93 +2,36 @@ package metadata_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"io"
-	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dioad/cli"
 	"github.com/dioad/cli/metadata"
 )
 
-// captureStdout redirects os.Stdout to a pipe, calls f, then returns
-// everything written to the pipe as a string.
-func captureStdout(t *testing.T, f func()) string {
-	t.Helper()
+func TestNewVersionCommand_PlainText(t *testing.T) {
+	info := metadata.BuildInfo{
+		Version: "1.2.3",
+		Commit:  "abc1234",
+		Date:    "2024-01-01",
+	}
 
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-
-	origStdout := os.Stdout
-	defer func() {
-		os.Stdout = origStdout
-	}()
-	os.Stdout = w
-
-	f()
-	w.Close()
+	cmd := metadata.NewVersionCommand("myorg", "myapp", info)
 
 	var buf bytes.Buffer
-	_, err = io.Copy(&buf, r)
-	require.NoError(t, err)
-	r.Close()
-
-	return buf.String()
-}
-
-func newTestContext() context.Context {
-	return cli.Context(
-		context.Background(),
-		cli.SetOrgName("testorg"),
-		cli.SetAppName("testapp"),
-	)
-}
-
-// TestNewVersionCommand_FlagRegistered verifies that the --json flag is
-// registered on the command returned by NewVersionCommand.
-func TestNewVersionCommand_FlagRegistered(t *testing.T) {
-	info := metadata.BuildInfo{
-		Version: "1.2.3",
-		Commit:  "abc1234",
-		Date:    "2024-01-01",
-	}
-
-	cmd := metadata.NewVersionCommand("myorg", "myapp", info)
-
-	jsonFlag := cmd.Flags().Lookup("json")
-	require.NotNil(t, jsonFlag, "--json flag must be registered on the version command")
-	assert.Equal(t, "false", jsonFlag.DefValue, "--json flag default should be false")
-}
-
-// TestNewVersionCommand_PlainOutput verifies that the command prints a single
-// "orgName appName version" line when --json is not set.
-func TestNewVersionCommand_PlainOutput(t *testing.T) {
-	info := metadata.BuildInfo{
-		Version: "1.2.3",
-		Commit:  "abc1234",
-		Date:    "2024-01-01",
-	}
-
-	cmd := metadata.NewVersionCommand("myorg", "myapp", info)
+	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{})
-	cmd.SilenceUsage = true
 
-	var execErr error
-	got := captureStdout(t, func() {
-		execErr = cmd.ExecuteContext(newTestContext())
-	})
+	err := cmd.Execute()
+	require.NoError(t, err)
 
-	require.NoError(t, execErr)
-	assert.Equal(t, "myorg myapp 1.2.3\n", got)
+	assert.Equal(t, "myorg myapp 1.2.3\n", buf.String())
 }
 
-// TestNewVersionCommand_JSONOutput verifies that the command prints valid JSON
-// containing version, commit, and date fields when --json is passed.
-func TestNewVersionCommand_JSONOutput(t *testing.T) {
+func TestNewVersionCommand_JSON(t *testing.T) {
 	info := metadata.BuildInfo{
 		Version: "1.2.3",
 		Commit:  "abc1234",
@@ -96,19 +39,34 @@ func TestNewVersionCommand_JSONOutput(t *testing.T) {
 	}
 
 	cmd := metadata.NewVersionCommand("myorg", "myapp", info)
+
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"--json"})
-	cmd.SilenceUsage = true
 
-	var execErr error
-	got := captureStdout(t, func() {
-		execErr = cmd.ExecuteContext(newTestContext())
-	})
+	err := cmd.Execute()
+	require.NoError(t, err)
 
-	require.NoError(t, execErr)
+	var got map[string]string
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &got))
+	assert.Equal(t, info.Version, got["version"])
+	assert.Equal(t, info.Commit, got["commit"])
+	assert.Equal(t, info.Date, got["date"])
+}
 
-	var result map[string]string
-	require.NoError(t, json.Unmarshal([]byte(got), &result), "output should be valid JSON")
-	assert.Equal(t, info.Version, result["version"])
-	assert.Equal(t, info.Commit, result["commit"])
-	assert.Equal(t, info.Date, result["date"])
+func TestNewVersionCommand_NoInitConfig(t *testing.T) {
+	// This test verifies the command executes without requiring org/app context,
+	// confirming it bypasses CobraRunE / InitConfig entirely.
+	info := metadata.BuildInfo{Version: "0.1.0", Commit: "XX", Date: "1970-01-01"}
+
+	cmd := metadata.NewVersionCommand("org", "app", info)
+
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	require.NoError(t, err, "version command should run without context or config")
+	assert.True(t, strings.HasPrefix(buf.String(), "org app "),
+		"output should start with org and app name")
 }
