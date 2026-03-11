@@ -22,7 +22,6 @@ package metadata
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -61,19 +60,19 @@ By default, this prints a single human-readable line with the application versio
 Use --json to print detailed version information (including version, commit, and date)
 as a JSON object.`,
 		Args: cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if jsonOutput {
 				details := map[string]string{
 					"version": info.Version,
 					"commit":  info.Commit,
 					"date":    info.Date,
 				}
-				enc := json.NewEncoder(os.Stdout)
+				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
 				return enc.Encode(details)
 			}
 
-			fmt.Printf("%s %s %v\n", orgName, appName, info.Version)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", orgName, appName, info.Version)
 			return nil
 		},
 	}
