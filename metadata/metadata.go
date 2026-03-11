@@ -57,8 +57,12 @@ func NewVersionCommand(orgName, appName string, info BuildInfo) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "version",
-		Short: "Shows version information",
-		Long:  `Shows detailed version information.`,
+		Short: "Show version information (use --json for detailed output)",
+		Long: `Show version information.
+
+By default, this prints a single human-readable line with the application version.
+Use --json to print detailed version information (including version, commit, and date)
+as a JSON object.`,
 		Args:  cobra.NoArgs,
 	}
 
