@@ -59,6 +59,7 @@ func NewVersionCommand(orgName, appName string, info BuildInfo) *cobra.Command {
 		Use:   "version",
 		Short: "Shows version information",
 		Long:  `Shows detailed version information.`,
+		Args:  cobra.NoArgs,
 	}
 
 	exec := func(_ context.Context, cfg *versionConfig) error {
