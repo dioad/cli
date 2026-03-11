@@ -20,14 +20,11 @@
 package metadata
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
-
-	"github.com/dioad/cli"
 )
 
 // Version is the application version, set via ldflags at build time.
@@ -46,14 +43,14 @@ type BuildInfo struct {
 	Date    string
 }
 
-type versionConfig struct {
-	JSON bool `mapstructure:"json"`
-}
-
 // NewVersionCommand returns a "version" cobra.Command that prints build information.
 // orgName and appName are used in the plain-text output line.
+//
+// Unlike commands built with cli.NewCommand, this command wires RunE directly and
+// does not call InitConfig, so it produces no side effects such as reading config
+// files, configuring logging, or starting a background WatchConfig goroutine.
 func NewVersionCommand(orgName, appName string, info BuildInfo) *cobra.Command {
-	cfg := &versionConfig{}
+	var jsonOutput bool
 
 	cmd := &cobra.Command{
 		Use:   "version",
@@ -63,24 +60,25 @@ func NewVersionCommand(orgName, appName string, info BuildInfo) *cobra.Command {
 By default, this prints a single human-readable line with the application version.
 Use --json to print detailed version information (including version, commit, and date)
 as a JSON object.`,
-		Args:  cobra.NoArgs,
-	}
-
-	exec := func(_ context.Context, cfg *versionConfig) error {
-		if cfg.JSON {
-			details := map[string]string{
-				"version": info.Version,
-				"commit":  info.Commit,
-				"date":    info.Date,
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if jsonOutput {
+				details := map[string]string{
+					"version": info.Version,
+					"commit":  info.Commit,
+					"date":    info.Date,
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(details)
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(details)
-		}
 
-		fmt.Printf("%s %s %v\n", orgName, appName, info.Version)
-		return nil
+			fmt.Printf("%s %s %v\n", orgName, appName, info.Version)
+			return nil
+		},
 	}
 
-	return cli.NewCommand(cmd, exec, cfg)
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output version information as JSON")
+
+	return cmd
 }
