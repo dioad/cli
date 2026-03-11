@@ -24,11 +24,12 @@ func captureStdout(t *testing.T, f func()) string {
 	require.NoError(t, err)
 
 	origStdout := os.Stdout
+	defer func() {
+		os.Stdout = origStdout
+	}()
 	os.Stdout = w
 
 	f()
-
-	os.Stdout = origStdout
 	w.Close()
 
 	var buf bytes.Buffer
