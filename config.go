@@ -42,11 +42,16 @@ func commandParts(cmd *cobra.Command) []string {
 // - Support environment variables with the given appName prefix
 // - Unmarshal configuration into the provided cfg struct
 //
-// Configuration sources are merged with this precedence (highest to lowest):
-// 1. Command-line flags
-// 2. Explicit config file (--config flag)
-// 3. Environment variables (prefixed with appName)
-// 4. Config files in standard locations
+// Configuration sources are merged with Viper's standard precedence (highest to
+// lowest): explicit overrides, command-line flags, environment variables
+// (prefixed with appName), config files, then defaults.
+//
+// Deprecated: use InitConfig instead. InitViperConfig and
+// InitViperConfigWithFlagSet operate on Viper's global package-level singleton,
+// so concurrent or repeated calls within the same process (including parallel
+// tests) mutate shared state. InitConfig instead constructs a local Viper
+// instance per call and is safe to use from parallel tests or multiple
+// commands in the same process.
 func InitViperConfig(orgName, appName string, cfg any) error {
 	pflag.Parse()
 	return InitViperConfigWithFlagSet(orgName, appName, cfg, pflag.CommandLine)
@@ -57,6 +62,12 @@ func InitViperConfig(orgName, appName string, cfg any) error {
 // Similar to InitViperConfig but allows specifying a custom pflag.FlagSet
 // instead of using the global command line flags. Useful for embedding
 // configuration initialization in library code or tests.
+//
+// Deprecated: use InitConfig instead, for the same reason as InitViperConfig —
+// this function reads and mutates Viper's global singleton. Note also that its
+// environment variable key replacer only maps "-" to "_", whereas InitConfig's
+// also maps "." to "_"; the two functions are not behaviourally interchangeable
+// for keys containing dots.
 func InitViperConfigWithFlagSet(orgName, appName string, cfg any, parsedFlagSet *pflag.FlagSet) error {
 	err := viper.BindPFlags(parsedFlagSet)
 	if err != nil {

@@ -52,13 +52,15 @@
 //
 // # Configuration Loading Order
 //
-// Configurations are loaded and merged in this order (last wins):
+// InitConfig searches for a config file at /etc/{org}/{app}/... or
+// $HOME/.config/{org}/{app}/..., unless --config points at an explicit file.
+// Whichever file is found (if any) is merged with flags and environment
+// variables using Viper's standard precedence (highest to lowest):
 //
-// 1. Config file at /etc/{org}/{app}/config.yaml
-// 2. Config file at $HOME/.config/{org}/{app}/config.yaml
-// 3. Command-line flags
-// 4. Environment variables with prefix {APPNAME}_
-// 5. Config file specified by --config flag
+// 1. Command-line flags
+// 2. Environment variables with prefix {APPNAME}_
+// 3. Config file (explicit --config file, or the first standard location found)
+// 4. Defaults
 //
 // # Context Management
 //
