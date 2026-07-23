@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/mitchellh/go-homedir"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -474,6 +475,11 @@ func CobraRunE[T any](execFunc func(context.Context, *T) error, opt ...CobraOpt[
 			return err
 		}
 
-		return execFunc(cmd.Context(), &cfg)
+		// Attach the logger InitConfig just configured to the context so
+		// execFunc can retrieve it via zerolog.Ctx(ctx) instead of depending
+		// on the global logger directly.
+		ctx := log.Logger.WithContext(cmd.Context())
+
+		return execFunc(ctx, &cfg)
 	}
 }
