@@ -3,8 +3,9 @@ package logging_test
 import (
 	"testing"
 
-	"github.com/dioad/cli/logging"
 	"github.com/rs/zerolog"
+
+	"github.com/dioad/cli/logging"
 )
 
 // TestConfig verifies the logging configuration struct.
