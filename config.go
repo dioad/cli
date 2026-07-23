@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/mitchellh/go-homedir"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -42,11 +43,16 @@ func commandParts(cmd *cobra.Command) []string {
 // - Support environment variables with the given appName prefix
 // - Unmarshal configuration into the provided cfg struct
 //
-// Configuration sources are merged with this precedence (highest to lowest):
-// 1. Command-line flags
-// 2. Explicit config file (--config flag)
-// 3. Environment variables (prefixed with appName)
-// 4. Config files in standard locations
+// Configuration sources are merged with Viper's standard precedence (highest to
+// lowest): explicit overrides, command-line flags, environment variables
+// (prefixed with appName), config files, then defaults.
+//
+// Deprecated: use InitConfig instead. InitViperConfig and
+// InitViperConfigWithFlagSet operate on Viper's global package-level singleton,
+// so concurrent or repeated calls within the same process (including parallel
+// tests) mutate shared state. InitConfig instead constructs a local Viper
+// instance per call and is safe to use from parallel tests or multiple
+// commands in the same process.
 func InitViperConfig(orgName, appName string, cfg any) error {
 	pflag.Parse()
 	return InitViperConfigWithFlagSet(orgName, appName, cfg, pflag.CommandLine)
@@ -57,6 +63,12 @@ func InitViperConfig(orgName, appName string, cfg any) error {
 // Similar to InitViperConfig but allows specifying a custom pflag.FlagSet
 // instead of using the global command line flags. Useful for embedding
 // configuration initialization in library code or tests.
+//
+// Deprecated: use InitConfig instead, for the same reason as InitViperConfig —
+// this function reads and mutates Viper's global singleton. Note also that its
+// environment variable key replacer only maps "-" to "_", whereas InitConfig's
+// also maps "." to "_"; the two functions are not behaviourally interchangeable
+// for keys containing dots.
 func InitViperConfigWithFlagSet(orgName, appName string, cfg any, parsedFlagSet *pflag.FlagSet) error {
 	err := viper.BindPFlags(parsedFlagSet)
 	if err != nil {
@@ -117,10 +129,14 @@ func WithoutLogging() InitConfigOption {
 	}
 }
 
-// WithoutWatchConfig disables automatic configuration hot-reloading during InitConfig.
+// WithoutWatchConfig is a no-op, retained for backward compatibility.
 //
-// By default, InitConfig calls WatchConfig when a config file is found, which
-// starts a background goroutine. Use this option in tests to prevent that.
+// Deprecated: InitConfig no longer starts a background config-file watcher.
+// The previous implementation started an fsnotify goroutine via Viper's
+// WatchConfig but never re-applied changes into the caller's config struct,
+// and doing so safely would require synchronized access to that struct (a
+// breaking API change). The goroutine was therefore removed rather than
+// left running with no observable effect.
 func WithoutWatchConfig() InitConfigOption {
 	return func(o *initConfigOptions) {
 		o.watchConfig = false
@@ -134,7 +150,6 @@ func WithoutWatchConfig() InitConfigOption {
 // - Flag binding from the Cobra command
 // - Environment variable overrides
 // - Automatic logging configuration (disable with WithoutLogging)
-// - Configuration hot-reloading via Viper watchers (disable with WithoutWatchConfig)
 func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...InitConfigOption) (*CommonConfig, error) {
 	options := defaultInitConfigOptions()
 	for _, o := range opts {
@@ -193,10 +208,6 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...In
 		if !errors.As(err, &configFileNotFoundError) {
 			return nil, fmt.Errorf("fatal error reading config file: %w", err)
 		}
-	}
-
-	if err == nil && options.watchConfig {
-		v.WatchConfig()
 	}
 
 	var c CommonConfig
@@ -464,6 +475,11 @@ func CobraRunE[T any](execFunc func(context.Context, *T) error, opt ...CobraOpt[
 			return err
 		}
 
-		return execFunc(cmd.Context(), &cfg)
+		// Attach the logger InitConfig just configured to the context so
+		// execFunc can retrieve it via zerolog.Ctx(ctx) instead of depending
+		// on the global logger directly.
+		ctx := log.Logger.WithContext(cmd.Context())
+
+		return execFunc(ctx, &cfg)
 	}
 }

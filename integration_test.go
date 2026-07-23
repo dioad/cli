@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
@@ -162,6 +163,34 @@ func TestContextPropagation(t *testing.T) {
 		"org name should be retrievable from the command context")
 	assert.Equal(t, appName, cli.AppNameFromContext(cmd.Context()),
 		"app name should be retrievable from the command context")
+}
+
+// TestCobraRunEInjectsLoggerIntoContext verifies that CobraRunE attaches the
+// logger configured by InitConfig to the context passed to execFunc, so
+// execFunc can retrieve it via zerolog.Ctx(ctx) instead of the global logger.
+func TestCobraRunEInjectsLoggerIntoContext(t *testing.T) {
+	type Config struct{}
+	var level zerolog.Level
+
+	cmd := cli.NewCommand(
+		&cobra.Command{Use: "test", SilenceUsage: true},
+		func(ctx context.Context, c *Config) error {
+			level = zerolog.Ctx(ctx).GetLevel()
+			return nil
+		},
+		&Config{},
+	)
+
+	ctx := cli.Context(
+		context.Background(),
+		cli.SetOrgName("testorg"),
+		cli.SetAppName("testapp"),
+	)
+
+	cmd.SetArgs([]string{})
+	require.NoError(t, cmd.ExecuteContext(ctx))
+	assert.NotEqual(t, zerolog.Disabled, level,
+		"zerolog.Ctx(ctx) inside execFunc should return the configured logger, not the no-op logger")
 }
 
 // TestEnvironmentIntegration verifies that environment variables are

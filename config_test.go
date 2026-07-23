@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/dioad/cli"
 )
@@ -29,9 +30,7 @@ func TestIsDocker(t *testing.T) {
 	if cli.IsDocker() {
 		t.Skip("running inside Docker; skipping non-Docker assertion")
 	}
-	if cli.IsDocker() {
-		t.Error("IsDocker() = true, want false when /.dockerenv is absent")
-	}
+	assert.False(t, cli.IsDocker(), "IsDocker() should return false when /.dockerenv is absent")
 }
 
 func TestValidateName(t *testing.T) {
@@ -94,9 +93,7 @@ func TestValidateName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.label, func(t *testing.T) {
 			err := cli.ValidateName(tt.name)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("validateName() error = %v, wantErr %v", err, tt.wantErr)
-			}
+			assert.Equal(t, tt.wantErr, err != nil, "ValidateName(%q) error = %v", tt.name, err)
 		})
 	}
 }
@@ -107,24 +104,17 @@ func TestDefaultUserConfigPath(t *testing.T) {
 	appName := "testapp"
 
 	filePath, err := cli.DefaultUserConfigPath(orgName, appName)
-	if err != nil {
-		t.Fatalf("DefaultUserConfigPath() error = %v", err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(filePath)) })
 
-	if filePath == "" {
-		t.Error("DefaultUserConfigPath() returned empty path")
-	}
+	assert.NotEmpty(t, filePath, "DefaultUserConfigPath() returned empty path")
 
 	// Verify directory was created
-	if _, err := os.Stat(filePath); err != nil {
-		t.Fatalf("DefaultUserConfigPath() created path not found: %v", err)
-	}
+	_, err = os.Stat(filePath)
+	require.NoError(t, err, "DefaultUserConfigPath() created path not found")
 
 	// Verify path contains org and app names
-	if !strings.Contains(filePath, orgName) {
-		t.Errorf("DefaultUserConfigPath() path doesn't contain orgName: %s", filePath)
-	}
+	assert.Contains(t, filePath, orgName)
 }
 
 // TestDefaultConfigPath returns the correct path based on environment.
@@ -133,21 +123,15 @@ func TestDefaultConfigPath(t *testing.T) {
 	appName := "testapp"
 
 	filePath, err := cli.DefaultConfigPath(orgName, appName)
-	if err != nil {
-		t.Fatalf("DefaultConfigPath() error = %v", err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(filePath)) })
 
-	if filePath == "" {
-		t.Error("DefaultConfigPath() returned empty path")
-	}
+	assert.NotEmpty(t, filePath, "DefaultConfigPath() returned empty path")
 
-	// Verify path is valid
-	if _, err := os.Stat(filePath); err != nil {
-		if !os.IsNotExist(err) {
-			t.Fatalf("DefaultConfigPath() stat error: %v", err)
-		}
-		// Path may not exist yet, that's OK
+	// Verify path is valid; it may not exist yet, that's OK.
+	_, err = os.Stat(filePath)
+	if err != nil {
+		require.True(t, os.IsNotExist(err), "DefaultConfigPath() stat error: %v", err)
 	}
 }
 
@@ -157,14 +141,10 @@ func TestDefaultPersistencePath(t *testing.T) {
 	appName := "testapp"
 
 	filePath, err := cli.DefaultPersistencePath(orgName, appName)
-	if err != nil {
-		t.Fatalf("DefaultPersistencePath() error = %v", err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(filePath)) })
 
-	if filePath == "" {
-		t.Error("DefaultPersistencePath() returned empty path")
-	}
+	assert.NotEmpty(t, filePath, "DefaultPersistencePath() returned empty path")
 }
 
 // TestDefaultConfigFile returns the correct file path.
@@ -174,19 +154,14 @@ func TestDefaultConfigFile(t *testing.T) {
 	baseName := "config"
 
 	filePath, err := cli.DefaultConfigFile(orgName, appName, baseName)
-	if err != nil {
-		t.Fatalf("DefaultConfigFile() error = %v", err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(filePath)) })
 
-	if filePath == "" {
-		t.Error("DefaultConfigFile() returned empty path")
-	}
+	assert.NotEmpty(t, filePath, "DefaultConfigFile() returned empty path")
 
 	// Verify the file path ends with the expected name
-	if !strings.HasSuffix(filePath, "config.yaml") {
-		t.Errorf("DefaultConfigFile() path doesn't end with 'config.yaml': %s", filePath)
-	}
+	assert.True(t, strings.HasSuffix(filePath, "config.yaml"),
+		"DefaultConfigFile() path doesn't end with 'config.yaml': %s", filePath)
 }
 
 // TestDefaultPersistenceFile returns the correct file path.
@@ -196,18 +171,12 @@ func TestDefaultPersistenceFile(t *testing.T) {
 	baseName := "state"
 
 	filePath, err := cli.DefaultPersistenceFile(orgName, appName, baseName)
-	if err != nil {
-		t.Fatalf("DefaultPersistenceFile() error = %v", err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(filePath)) })
 
-	if filePath == "" {
-		t.Error("DefaultPersistenceFile() returned empty path")
-	}
-
-	if !strings.HasSuffix(filePath, "state.yaml") {
-		t.Errorf("DefaultPersistenceFile() path doesn't end with 'state.yaml': %s", filePath)
-	}
+	assert.NotEmpty(t, filePath, "DefaultPersistenceFile() returned empty path")
+	assert.True(t, strings.HasSuffix(filePath, "state.yaml"),
+		"DefaultPersistenceFile() path doesn't end with 'state.yaml': %s", filePath)
 }
 
 // TestContext creates and retrieves context values.
@@ -236,7 +205,7 @@ func TestContext(t *testing.T) {
 
 // TestContextWithNilBase creates context with nil base context.
 func TestContextWithNilBase(t *testing.T) {
-	ctx := cli.Context(nil) // lint:ignore SA1012 specifically testing behaviour is nil is passed
+	ctx := cli.Context(nil) //nolint:staticcheck // specifically testing behaviour when nil is passed
 	assert.NotNil(t, ctx)
 
 	// Verify context is usable
@@ -252,32 +221,22 @@ func TestContextWithNilBase(t *testing.T) {
 func TestSetOrgName(t *testing.T) {
 	orgName := "myorg"
 	opt := cli.SetOrgName(orgName)
-
-	if opt == nil {
-		t.Error("SetOrgName() returned nil")
-	}
+	require.NotNil(t, opt, "SetOrgName() returned nil")
 
 	// Apply to context
 	ctx := opt(context.Background())
-	if ctx == nil {
-		t.Error("SetOrgName() returned nil context")
-	}
+	assert.NotNil(t, ctx, "SetOrgName() returned nil context")
 }
 
 // TestSetAppName sets app name in context.
 func TestSetAppName(t *testing.T) {
 	appName := "myapp"
 	opt := cli.SetAppName(appName)
-
-	if opt == nil {
-		t.Error("SetAppName() returned nil")
-	}
+	require.NotNil(t, opt, "SetAppName() returned nil")
 
 	// Apply to context
 	ctx := opt(context.Background())
-	if ctx == nil {
-		t.Error("SetAppName() returned nil context")
-	}
+	assert.NotNil(t, ctx, "SetAppName() returned nil context")
 }
 
 // TestNewCommand creates a command with type-safe config.
@@ -303,17 +262,9 @@ func TestNewCommand(t *testing.T) {
 		cfg,
 	)
 
-	if cmd == nil {
-		t.Fatal("NewCommand() returned nil command")
-	}
-
-	if cmd.Use != "test" {
-		t.Errorf("NewCommand() use = %s, want test", cmd.Use)
-	}
-
-	if cmd.RunE == nil {
-		t.Error("NewCommand() RunE not set")
-	}
+	require.NotNil(t, cmd, "NewCommand() returned nil command")
+	assert.Equal(t, "test", cmd.Use)
+	assert.NotNil(t, cmd.RunE, "NewCommand() RunE not set")
 }
 
 // TestNewCommandWithConfigFlag creates command with config flag option.
@@ -335,19 +286,12 @@ func TestNewCommandWithConfigFlag(t *testing.T) {
 		cli.WithConfigFlag("config.yaml"),
 	)
 
-	if cmd == nil {
-		t.Fatal("NewCommand() returned nil")
-	}
+	require.NotNil(t, cmd, "NewCommand() returned nil")
 
 	// Verify config flag was added
 	configFlag := cmd.Flag("config")
-	if configFlag == nil {
-		t.Fatal("NewCommand() did not add config flag")
-	}
-
-	if configFlag.Shorthand != "c" {
-		t.Errorf("config flag shorthand = %s, want c", configFlag.Shorthand)
-	}
+	require.NotNil(t, configFlag, "NewCommand() did not add config flag")
+	assert.Equal(t, "c", configFlag.Shorthand)
 }
 
 // TestWithConfigFlag option sets config flag correctly.
@@ -358,13 +302,8 @@ func TestWithConfigFlag(t *testing.T) {
 	opt(cmd)
 
 	configFlag := cmd.Flag("config")
-	if configFlag == nil {
-		t.Fatal("WithConfigFlag() did not add config flag")
-	}
-
-	if configFlag.DefValue != "my-config.yaml" {
-		t.Errorf("config flag default = %s, want my-config.yaml", configFlag.DefValue)
-	}
+	require.NotNil(t, configFlag, "WithConfigFlag() did not add config flag")
+	assert.Equal(t, "my-config.yaml", configFlag.DefValue)
 }
 
 func TestUnmarshalConfig(t *testing.T) {

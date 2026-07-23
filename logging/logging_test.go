@@ -1,10 +1,17 @@
 package logging_test
 
 import (
+	"bytes"
+	"errors"
+	"os"
+	"os/exec"
 	"testing"
 
-	"github.com/dioad/cli/logging"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/dioad/cli/logging"
 )
 
 // TestConfig verifies the logging configuration struct.
@@ -19,21 +26,10 @@ func TestConfig(t *testing.T) {
 		Compress:   true,
 	}
 
-	if cfg.Level != "debug" {
-		t.Errorf("Config.Level = %s, want debug", cfg.Level)
-	}
-
-	if cfg.File != "test.log" {
-		t.Errorf("Config.File = %s, want test.log", cfg.File)
-	}
-
-	if cfg.MaxSize != 100 {
-		t.Errorf("Config.MaxSize = %d, want 100", cfg.MaxSize)
-	}
-
-	if cfg.MaxBackups != 3 {
-		t.Errorf("Config.MaxBackups = %d, want 3", cfg.MaxBackups)
-	}
+	assert.Equal(t, "debug", cfg.Level)
+	assert.Equal(t, "test.log", cfg.File)
+	assert.Equal(t, 100, cfg.MaxSize)
+	assert.Equal(t, 3, cfg.MaxBackups)
 }
 
 // TestConfigureLogLevel sets and verifies log level.
@@ -78,14 +74,13 @@ func TestConfigureLogLevel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil && tt.expectedNoPanic {
-					t.Errorf("ConfigureLogLevel(%s) panicked: %v", tt.level, r)
-				}
-			}()
-
-			logging.ConfigureLogLevel(tt.level, tt.defaultLevel)
-			// If we get here, no panic occurred
+			assertFunc := assert.NotPanics
+			if !tt.expectedNoPanic {
+				assertFunc = assert.Panics
+			}
+			assertFunc(t, func() {
+				logging.ConfigureLogLevel(tt.level, tt.defaultLevel)
+			})
 		})
 	}
 }
@@ -97,16 +92,11 @@ func TestWithDefaultLogLevel(t *testing.T) {
 	}
 
 	opt := logging.WithDefaultLogLevel(zerolog.DebugLevel)
-
-	if opt == nil {
-		t.Error("WithDefaultLogLevel() returned nil")
-	}
+	require.NotNil(t, opt, "WithDefaultLogLevel() returned nil")
 
 	opt(&cfg)
 
-	if cfg.Level != "debug" {
-		t.Errorf("WithDefaultLogLevel() set level to %s, want debug", cfg.Level)
-	}
+	assert.Equal(t, "debug", cfg.Level)
 }
 
 // TestWithDefaultLogLevelDoesNotOverride preserves existing level.
@@ -118,9 +108,7 @@ func TestWithDefaultLogLevelDoesNotOverride(t *testing.T) {
 	opt := logging.WithDefaultLogLevel(zerolog.DebugLevel)
 	opt(&cfg)
 
-	if cfg.Level != "error" {
-		t.Errorf("WithDefaultLogLevel() override existing level to %s, want error", cfg.Level)
-	}
+	assert.Equal(t, "error", cfg.Level, "WithDefaultLogLevel() should not override an existing level")
 }
 
 // TestWithDefaultLogLevelFixesInvalid replaces invalid level with default.
@@ -132,9 +120,7 @@ func TestWithDefaultLogLevelFixesInvalid(t *testing.T) {
 	opt := logging.WithDefaultLogLevel(zerolog.DebugLevel)
 	opt(&cfg)
 
-	if cfg.Level != "debug" {
-		t.Errorf("WithDefaultLogLevel() fixed invalid level to %s, want debug", cfg.Level)
-	}
+	assert.Equal(t, "debug", cfg.Level, "WithDefaultLogLevel() should replace an invalid level with the default")
 }
 
 // TestConfigureCmdLogger applies configuration without panic.
@@ -177,28 +163,43 @@ func TestConfigureLogOutput(t *testing.T) {
 	logging.ConfigureLogOutput(cfg)
 }
 
-// TestFatalError doesn't panic during unit test (it would exit).
-func TestFatalError(t *testing.T) {
-	// We can't easily test FatalError as it calls log.Fatal which exits.
-	// This is a documentation test showing the function exists.
-	// In practice, this would only be used when the application needs to exit.
+// TestFatalErrorExits verifies FatalError logs the error and exits the
+// process with a non-zero status. Since FatalError calls log.Fatal (which
+// calls os.Exit), it is exercised in a subprocess rather than in-process.
+func TestFatalErrorExits(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") == "1" {
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcessFatalError")
+	cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr, "FatalError should cause the process to exit non-zero")
+	assert.False(t, exitErr.Success(), "process should exit with a non-zero status")
+	assert.Contains(t, stderr.String(), "boom",
+		"stderr should contain the fatal error message")
+}
+
+// TestHelperProcessFatalError is not a real test; it is invoked as a
+// subprocess by TestFatalErrorExits to exercise FatalError's os.Exit path.
+func TestHelperProcessFatalError(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+		return
+	}
+	logging.FatalError(errors.New("boom"))
 }
 
 // TestEmptyConfig uses default values.
 func TestEmptyConfig(t *testing.T) {
 	cfg := logging.Config{}
 
-	if cfg.Level != "" {
-		t.Errorf("empty Config.Level = %s, want empty", cfg.Level)
-	}
-
-	if cfg.File != "" {
-		t.Errorf("empty Config.File = %s, want empty", cfg.File)
-	}
-
-	if cfg.MaxSize != 0 {
-		t.Errorf("empty Config.MaxSize = %d, want 0", cfg.MaxSize)
-	}
+	assert.Empty(t, cfg.Level)
+	assert.Empty(t, cfg.File)
+	assert.Zero(t, cfg.MaxSize)
 }
 
 // TestConfigIsConsistent verifies configuration can be created and used.
@@ -211,13 +212,8 @@ func TestConfigIsConsistent(t *testing.T) {
 
 	cfg2 := cfg1
 
-	if cfg1.Level != cfg2.Level {
-		t.Error("Config copy doesn't maintain Level")
-	}
-
-	if cfg1.MaxSize != cfg2.MaxSize {
-		t.Error("Config copy doesn't maintain MaxSize")
-	}
+	assert.Equal(t, cfg1.Level, cfg2.Level, "Config copy should maintain Level")
+	assert.Equal(t, cfg1.MaxSize, cfg2.MaxSize, "Config copy should maintain MaxSize")
 }
 
 // BenchmarkConfigureLogLevel measures log level configuration time.

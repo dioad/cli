@@ -30,3 +30,9 @@ temp/
 # OS files
 .DS_Store
 Thumbs.db
+
+.gograph/
+
+
+# APM dependencies
+apm_modules/

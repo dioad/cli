@@ -138,6 +138,8 @@ func ConfigureLogOutput(c Config) {
 			logOutput = fileOutput
 		}
 	}
+	// Replaces the temporary stdout logger constructed above once file
+	// output (if any) has been resolved; not a duplicate of that call.
 	log.Logger = zerolog.New(logOutput).With().Timestamp().Logger()
 
 	// Configure default logger
@@ -147,5 +149,5 @@ func ConfigureLogOutput(c Config) {
 
 // FatalError logs an error with fatal level and exits the program.
 func FatalError(err error) {
-	log.Fatal().Err(err)
+	log.Fatal().Err(err).Msg(err.Error())
 }

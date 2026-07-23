@@ -3,8 +3,9 @@ package logging_test
 import (
 	"fmt"
 
-	"github.com/dioad/cli/logging"
 	"github.com/rs/zerolog"
+
+	"github.com/dioad/cli/logging"
 )
 
 // ExampleConfig demonstrates creating a logging configuration.

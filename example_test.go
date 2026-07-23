@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dioad/cli"
 	"github.com/spf13/cobra"
+
+	"github.com/dioad/cli"
 )
 
 // ExampleNewCommand demonstrates creating a type-safe command with configuration.
