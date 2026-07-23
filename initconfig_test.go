@@ -5,6 +5,7 @@ package cli_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -46,7 +47,8 @@ func newTestCmd(t *testing.T, configFile string) *cobra.Command {
 //   - t.TempDir() for filesystem isolation
 //   - t.Setenv() for environment variable isolation
 //   - WithoutLogging() to avoid global zerolog state changes
-//   - WithoutWatchConfig() to prevent background goroutines
+//   - WithoutWatchConfig() for backward-compatible option parity (it is now a
+//     no-op; InitConfig no longer starts a background watcher goroutine)
 func TestInitConfig(t *testing.T) {
 	type testConfig struct {
 		Name string `mapstructure:"name"`
@@ -162,13 +164,37 @@ func TestInitConfig(t *testing.T) {
 			// Act
 			_, err := cli.InitConfig(tt.orgName, tt.appName, cmd, &cfg,
 				cli.WithoutLogging(),     // keep global zerolog state unchanged
-				cli.WithoutWatchConfig(), // prevent background goroutines
+				cli.WithoutWatchConfig(), // no-op, kept for option parity
 			)
 
 			// Assert
 			tt.assert(t, &cfg, err)
 		})
 	}
+}
+
+// TestInitConfigDoesNotLeakWatcherGoroutine verifies that InitConfig no
+// longer starts a background fsnotify watcher goroutine per call (the
+// watcher was removed because it had no safe way to propagate reloaded
+// config into the caller's struct — see WithoutWatchConfig's doc comment).
+func TestInitConfigDoesNotLeakWatcherGoroutine(t *testing.T) {
+	type testConfig struct {
+		Name string `mapstructure:"name"`
+	}
+
+	before := runtime.NumGoroutine()
+
+	for range 10 {
+		cmd := newTestCmd(t, writeYAML(t, "name: x\n"))
+		var cfg testConfig
+		_, err := cli.InitConfig("testorg", "testapp", cmd, &cfg, cli.WithoutLogging())
+		require.NoError(t, err)
+	}
+
+	runtime.Gosched()
+	after := runtime.NumGoroutine()
+	assert.LessOrEqual(t, after, before+2,
+		"InitConfig should not start a background watcher goroutine per call")
 }
 
 // TestInitViperConfigWithFlagSet verifies that a custom pflag.FlagSet is

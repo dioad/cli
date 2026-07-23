@@ -117,10 +117,14 @@ func WithoutLogging() InitConfigOption {
 	}
 }
 
-// WithoutWatchConfig disables automatic configuration hot-reloading during InitConfig.
+// WithoutWatchConfig is a no-op, retained for backward compatibility.
 //
-// By default, InitConfig calls WatchConfig when a config file is found, which
-// starts a background goroutine. Use this option in tests to prevent that.
+// Deprecated: InitConfig no longer starts a background config-file watcher.
+// The previous implementation started an fsnotify goroutine via Viper's
+// WatchConfig but never re-applied changes into the caller's config struct,
+// and doing so safely would require synchronized access to that struct (a
+// breaking API change). The goroutine was therefore removed rather than
+// left running with no observable effect.
 func WithoutWatchConfig() InitConfigOption {
 	return func(o *initConfigOptions) {
 		o.watchConfig = false
@@ -134,7 +138,6 @@ func WithoutWatchConfig() InitConfigOption {
 // - Flag binding from the Cobra command
 // - Environment variable overrides
 // - Automatic logging configuration (disable with WithoutLogging)
-// - Configuration hot-reloading via Viper watchers (disable with WithoutWatchConfig)
 func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...InitConfigOption) (*CommonConfig, error) {
 	options := defaultInitConfigOptions()
 	for _, o := range opts {
@@ -193,10 +196,6 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...In
 		if !errors.As(err, &configFileNotFoundError) {
 			return nil, fmt.Errorf("fatal error reading config file: %w", err)
 		}
-	}
-
-	if err == nil && options.watchConfig {
-		v.WatchConfig()
 	}
 
 	var c CommonConfig
