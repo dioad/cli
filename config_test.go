@@ -205,7 +205,7 @@ func TestContext(t *testing.T) {
 
 // TestContextWithNilBase creates context with nil base context.
 func TestContextWithNilBase(t *testing.T) {
-	ctx := cli.Context(nil) // lint:ignore SA1012 specifically testing behaviour is nil is passed
+	ctx := cli.Context(nil) //nolint:staticcheck // specifically testing behaviour when nil is passed
 	assert.NotNil(t, ctx)
 
 	// Verify context is usable

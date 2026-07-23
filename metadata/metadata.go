@@ -72,8 +72,8 @@ as a JSON object.`,
 				return enc.Encode(details)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", orgName, appName, info.Version)
-			return nil
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", orgName, appName, info.Version)
+			return err
 		},
 	}
 
