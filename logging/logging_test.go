@@ -1,9 +1,15 @@
 package logging_test
 
 import (
+	"bytes"
+	"errors"
+	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/dioad/cli/logging"
 )
@@ -178,11 +184,34 @@ func TestConfigureLogOutput(t *testing.T) {
 	logging.ConfigureLogOutput(cfg)
 }
 
-// TestFatalError doesn't panic during unit test (it would exit).
-func TestFatalError(t *testing.T) {
-	// We can't easily test FatalError as it calls log.Fatal which exits.
-	// This is a documentation test showing the function exists.
-	// In practice, this would only be used when the application needs to exit.
+// TestFatalErrorExits verifies FatalError logs the error and exits the
+// process with a non-zero status. Since FatalError calls log.Fatal (which
+// calls os.Exit), it is exercised in a subprocess rather than in-process.
+func TestFatalErrorExits(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") == "1" {
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcessFatalError")
+	cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr, "FatalError should cause the process to exit non-zero")
+	assert.False(t, exitErr.Success(), "process should exit with a non-zero status")
+	assert.Contains(t, stderr.String(), "boom",
+		"stderr should contain the fatal error message")
+}
+
+// TestHelperProcessFatalError is not a real test; it is invoked as a
+// subprocess by TestFatalErrorExits to exercise FatalError's os.Exit path.
+func TestHelperProcessFatalError(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+		return
+	}
+	logging.FatalError(errors.New("boom"))
 }
 
 // TestEmptyConfig uses default values.

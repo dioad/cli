@@ -147,5 +147,5 @@ func ConfigureLogOutput(c Config) {
 
 // FatalError logs an error with fatal level and exits the program.
 func FatalError(err error) {
-	log.Fatal().Err(err)
+	log.Fatal().Err(err).Msg(err.Error())
 }
