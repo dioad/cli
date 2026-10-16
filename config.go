@@ -169,43 +169,13 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...In
 		return nil, err
 	}
 
-	var cfgFile string
-	configFlag := cmd.Flag("config")
-	if configFlag != nil {
-		cfgFile = configFlag.Value.String()
-	}
-
-	if cfgFile != "" {
-		// Use config file from the flag.
-		v.SetConfigFile(cfgFile)
-	} else {
-		systemConfigPath := filepath.Join("/etc", orgName, appName)
-		v.AddConfigPath(systemConfigPath)
-
-		homeConfigPath := "/config"
-		// Find home directory.
-		home, err := homedir.Dir()
-		if err == nil {
-			homeConfigPath = filepath.Join(home, ".config", orgName, appName)
-		}
-		v.AddConfigPath(homeConfigPath)
-
-		fullCommandName := strings.Join(commandParts(cmd), "-")
-
-		// Search config in home directory with name "config" (without extension).
-		v.SetConfigName(fullCommandName)
-		v.SetConfigType("yaml")
-	}
+	configureConfigFile(v, orgName, appName, cmd)
 
 	v.AutomaticEnv()
 
-	// If a config file is found, read it in.
-	err = v.ReadInConfig()
+	err = readConfigFile(v)
 	if err != nil {
-		var configFileNotFoundError viper.ConfigFileNotFoundError
-		if !errors.As(err, &configFileNotFoundError) {
-			return nil, fmt.Errorf("fatal error reading config file: %w", err)
-		}
+		return nil, err
 	}
 
 	var c CommonConfig
@@ -225,6 +195,46 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...In
 	}
 
 	return &c, nil
+}
+
+// configureConfigFile points v at the config file InitConfig reads for cmd:
+// the --config flag's value when it is set, otherwise a file named after
+// the command path in the system and user config directories.
+func configureConfigFile(v *viper.Viper, orgName, appName string, cmd *cobra.Command) {
+	var cfgFile string
+	if configFlag := cmd.Flag("config"); configFlag != nil {
+		cfgFile = configFlag.Value.String()
+	}
+
+	if cfgFile != "" {
+		v.SetConfigFile(cfgFile)
+		return
+	}
+
+	v.AddConfigPath(filepath.Join("/etc", orgName, appName))
+
+	homeConfigPath := "/config"
+	if home, err := homedir.Dir(); err == nil {
+		homeConfigPath = filepath.Join(home, ".config", orgName, appName)
+	}
+	v.AddConfigPath(homeConfigPath)
+
+	v.SetConfigName(strings.Join(commandParts(cmd), "-"))
+	v.SetConfigType("yaml")
+}
+
+// readConfigFile reads the file v is configured for. Not finding a file on
+// the search path is not an error.
+func readConfigFile(v *viper.Viper) error {
+	err := v.ReadInConfig()
+	if err == nil {
+		return nil
+	}
+	var configFileNotFoundError viper.ConfigFileNotFoundError
+	if errors.As(err, &configFileNotFoundError) {
+		return nil
+	}
+	return fmt.Errorf("fatal error reading config file: %w", err)
 }
 
 // UnmarshalConfig unmarshals Viper configuration into the provided struct with custom decode hooks.
@@ -465,9 +475,26 @@ func CobraRunE[T any](execFunc func(context.Context, *T) error, opt ...CobraOpt[
 			o(&cfg)
 		}
 
+		runOpts := runOptionsFromContext(cmd.Context())
+
+		var configFile string
+		var fileErr error
+		if runOpts.checkFile != nil {
+			configFile, fileErr = checkConfigFile(orgName, appName, cmd, runOpts.checkFile)
+		}
+
 		_, err := InitConfig(orgName, appName, cmd, &cfg)
 		if err != nil {
+			// The strict check decodes the same file, so its findings
+			// already name the fields InitConfig failed on, with paths.
+			if fileErr != nil {
+				return invalidConfigError(configFile, fileErr)
+			}
 			return err
+		}
+
+		if err := validateConfig(runOpts, fileErr, &cfg); err != nil {
+			return invalidConfigError(configFile, err)
 		}
 
 		// Attach the logger InitConfig just configured to the context so
