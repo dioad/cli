@@ -34,8 +34,10 @@ func DecodeHook() mapstructure.DecodeHookFunc {
 }
 
 // Decode decodes input, typically a map[string]any read from a
-// configuration file, into out, which must be a non-nil pointer. It uses
-// DecodeHook and rejects keys that match no field.
+// configuration file, into out, which must be a non-nil pointer. It decodes
+// as the cli loader does, with DecodeHook and mapstructure's weakly typed
+// input (so a number decodes into a string field, as viper allows), and
+// additionally rejects keys that match no field.
 //
 // Every problem is reported, as an *Error whose findings are sorted by path
 // and whose paths are relative to input: "tunnels[0].tls-server-config" for
@@ -52,7 +54,9 @@ func Decode(input, out any) error {
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook:  DecodeHook(),
 		ErrorUnused: true,
-		Result:      out,
+		// viper's Unmarshal, which the cli loader uses, decodes weakly.
+		WeaklyTypedInput: true,
+		Result:           out,
 	})
 	if err != nil {
 		return fmt.Errorf("configcheck: %w", err)
