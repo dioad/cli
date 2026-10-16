@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dioad/cli"
-	"github.com/dioad/cli/configcheck"
+	"github.com/dioad/config/configcheck"
 )
 
 type strictTLS struct {
