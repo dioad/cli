@@ -15,8 +15,8 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/dioad/cli/configcheck"
 	"github.com/dioad/cli/logging"
+	"github.com/dioad/config/configcheck"
 )
 
 // commandParts reconstructs the full command path by traversing parent commands.

@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/dioad/cli/configcheck"
+	"github.com/dioad/config/configcheck"
 )
 
 // Validator is implemented by a configuration type that can check itself.
