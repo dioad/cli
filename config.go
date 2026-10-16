@@ -9,15 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/mitchellh/go-homedir"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/dioad/util"
-
+	"github.com/dioad/cli/configcheck"
 	"github.com/dioad/cli/logging"
 )
 
@@ -233,14 +231,11 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...In
 //
 // It uses a composed decode hook to handle special types like MaskedString, time.Duration,
 // net.IP, and net.IPNet. This allows for seamless unmarshalling of complex configuration fields.
+//
+// The hook is configcheck.DecodeHook, so configcheck.Decode accepts exactly
+// the values this function does.
 func UnmarshalConfig(v *viper.Viper, c any) error {
-	decodeHook := mapstructure.ComposeDecodeHookFunc(
-		util.MaskedStringDecodeHook,
-		mapstructure.StringToTimeDurationHookFunc(),
-		mapstructure.StringToIPHookFunc(),
-		mapstructure.StringToIPNetHookFunc(),
-	)
-	return v.Unmarshal(c, viper.DecodeHook(decodeHook))
+	return v.Unmarshal(c, viper.DecodeHook(configcheck.DecodeHook()))
 }
 
 // IsDocker detects if the application is running inside a Docker container.
