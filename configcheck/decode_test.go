@@ -148,8 +148,32 @@ func TestDecode_ReportsEveryProblemInOnePass(t *testing.T) {
 		paths[i] = f.Path
 	}
 	assert.Equal(t, []string{"bogus", "port", "timeout", "tunnels[0].nmae"}, paths)
-	assert.Equal(t, "expected type 'int', got unconvertible type 'string'", findings[1].Message)
+	assert.Equal(t, "cannot parse value as 'int': strconv.ParseInt: invalid syntax", findings[1].Message)
 	assert.Equal(t, "time: invalid duration", findings[2].Message)
+}
+
+func TestDecode_AcceptsWeaklyTypedValuesAsTheLoaderDoes(t *testing.T) {
+	t.Parallel()
+
+	type weak struct {
+		ExternalPort string            `mapstructure:"external-port"`
+		Port         int               `mapstructure:"port"`
+		Predicates   map[string]string `mapstructure:"predicates"`
+	}
+	input := map[string]any{
+		"external-port": 443,
+		"port":          "8080",
+		"predicates":    []any{map[string]any{"iss": "a"}, map[string]any{"aud": "b"}},
+	}
+
+	var cfg weak
+	require.NoError(t, configcheck.Decode(input, &cfg))
+
+	assert.Equal(t, weak{
+		ExternalPort: "443",
+		Port:         8080,
+		Predicates:   map[string]string{"iss": "a", "aud": "b"},
+	}, cfg)
 }
 
 func TestDecode_SetsFieldsThatDecodeWhenOthersFail(t *testing.T) {
