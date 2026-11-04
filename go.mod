@@ -2,8 +2,6 @@ module github.com/dioad/cli
 
 go 1.25.0
 
-replace github.com/urfave/sflags => github.com/patdowney/sflags v0.4.2-patdowney
-
 require (
 	github.com/dioad/config v0.1.0
 	github.com/mitchellh/go-homedir v1.1.0
@@ -12,7 +10,7 @@ require (
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
-	github.com/urfave/sflags v0.4.1
+	github.com/urfave/sflags v0.4.2-0.20250718033027-b88b11ddd16a
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
