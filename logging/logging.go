@@ -6,6 +6,7 @@ import (
 	defaultLog "log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/mitchellh/go-homedir"
@@ -39,6 +40,28 @@ func WithDefaultLogLevel(level zerolog.Level) func(*Config) {
 			return
 		}
 	}
+}
+
+// processLoggingMu serialises ConfigureProcessLogging's write of the zerolog
+// global it owns.
+var processLoggingMu sync.Mutex
+
+// ConfigureProcessLogging sets up logging for the whole process: it does what
+// ConfigureCmdLogger does, then makes the resulting logger zerolog's
+// DefaultContextLogger, so zerolog.Ctx works on a context that carries no
+// logger, such as a shutdown context made from context.Background().
+//
+// It changes process-wide state, so call it once, from the command's entry
+// point. A service names itself per context with cli.ServiceLogger, which
+// leaves these globals alone, so several services in one process do not race
+// to write them.
+func ConfigureProcessLogging(c Config, opts ...Option) {
+	processLoggingMu.Lock()
+	defer processLoggingMu.Unlock()
+
+	ConfigureCmdLogger(c, opts...)
+	logger := log.Logger
+	zerolog.DefaultContextLogger = &logger
 }
 
 // ConfigureCmdLogger configures the global zerolog logger with the provided settings and options.

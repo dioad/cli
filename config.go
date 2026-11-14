@@ -119,7 +119,7 @@ func defaultInitConfigOptions() initConfigOptions {
 
 // WithoutLogging disables automatic logging configuration during InitConfig.
 //
-// By default, InitConfig configures the global logger via ConfigureCmdLogger.
+// By default, InitConfig configures the global logger via ConfigureProcessLogging.
 // Use this option in tests or when managing logging independently.
 func WithoutLogging() InitConfigOption {
 	return func(o *initConfigOptions) {
@@ -164,7 +164,7 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...In
 	v.SetEnvPrefix(appName)
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 
-	err = v.BindPFlags(cmd.Flags())
+	err = bindFlags(v, cmd.Flags())
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...In
 	}
 
 	if options.configureLogging {
-		logging.ConfigureCmdLogger(c.Logging)
+		logging.ConfigureProcessLogging(c.Logging)
 	}
 
 	err = UnmarshalConfig(v, cfg)
@@ -504,4 +504,40 @@ func CobraRunE[T any](execFunc func(context.Context, *T) error, opt ...CobraOpt[
 
 		return execFunc(ctx, &cfg)
 	}
+}
+
+// bindFlags binds fs's flags into v. A flag generated from a config struct
+// field binds to the config key the field is decoded from, not to its own name,
+// so its value reaches the config; any other flag binds under its name. A
+// deprecated alias that was set counts as its canonical flag being set.
+func bindFlags(v *viper.Viper, fs *pflag.FlagSet) error {
+	var err error
+	fs.VisitAll(func(f *pflag.Flag) {
+		if err != nil {
+			return
+		}
+		if target := annotation(f, aliasOfAnnotation); target != "" {
+			if canonical := fs.Lookup(target); canonical != nil && f.Changed {
+				canonical.Changed = true
+			}
+
+			return
+		}
+
+		key := annotation(f, configKeyAnnotation)
+		if key == "" {
+			key = f.Name
+		}
+		err = v.BindPFlag(key, f)
+	})
+
+	return err
+}
+
+func annotation(f *pflag.Flag, name string) string {
+	if values := f.Annotations[name]; len(values) > 0 {
+		return values[0]
+	}
+
+	return ""
 }
