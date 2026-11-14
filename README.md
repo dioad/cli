@@ -287,6 +287,12 @@ Configuration and persistence paths default to container volumes when running in
 
 See the `example/` directory for a complete working example demonstrating logging configuration and level testing.
 
+[`examples/config-command`](examples/config-command/README.md) shows a service with
+`config validate`, `config example` and `config schema` subcommands, from
+`cli.NewConfigCommand`. [Config keys for Dioad services](doc/config-keys.md)
+records the key vocabulary the services share and how keys, flags and
+environment variables relate.
+
 ## Dependencies
 
 - [spf13/cobra](https://github.com/spf13/cobra) - CLI framework
