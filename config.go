@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"strings"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/mitchellh/go-homedir"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -88,8 +91,7 @@ func InitViperConfigWithFlagSet(orgName, appName string, cfg any, parsedFlagSet 
 
 	err = viper.ReadInConfig()
 	if err != nil { // Handle errors reading the config file
-		var configFileNotFoundError viper.ConfigFileNotFoundError
-		if !errors.As(err, &configFileNotFoundError) {
+		if _, ok := errors.AsType[viper.ConfigFileNotFoundError](err); !ok {
 			return fmt.Errorf("fatal error reading config file: %w", err)
 		}
 	}
@@ -230,8 +232,7 @@ func readConfigFile(v *viper.Viper) error {
 	if err == nil {
 		return nil
 	}
-	var configFileNotFoundError viper.ConfigFileNotFoundError
-	if errors.As(err, &configFileNotFoundError) {
+	if _, ok := errors.AsType[viper.ConfigFileNotFoundError](err); ok {
 		return nil
 	}
 	return fmt.Errorf("fatal error reading config file: %w", err)
@@ -243,9 +244,89 @@ func readConfigFile(v *viper.Viper) error {
 // net.IP, and net.IPNet. This allows for seamless unmarshalling of complex configuration fields.
 //
 // The hook is configcheck.DecodeHook, so configcheck.Decode accepts exactly
-// the values this function does.
+// the values this function does, after unset flags have been dropped.
 func UnmarshalConfig(v *viper.Viper, c any) error {
-	return v.Unmarshal(c, viper.DecodeHook(configcheck.DecodeHook()))
+	hook := mapstructure.ComposeDecodeHookFunc(configcheck.DecodeHook(), dropUnset)
+
+	return v.Unmarshal(c, viper.DecodeHook(hook))
+}
+
+// dropUnset keeps what viper answers for every bound flag, but did not get
+// from the config, out of the decoded struct: a flag nobody set arrives as an
+// empty slice, or as a block of zero values for a pointer field. Decoding
+// those would leave an empty slice, or an allocated block, in a field the
+// config never mentioned. Such a field differs from its zero value, and a check
+// for whether it is set would see it as set. A config that sets a block to
+// nothing but zero values reads as not setting it.
+//
+// It is composed last because a hook that returns nil leaves the ones after it
+// nothing to convert.
+func dropUnset(from, to reflect.Value) (any, error) {
+	switch {
+	case from.Kind() == reflect.Slice && to.Kind() == reflect.Slice && from.Len() == 0:
+		return nil, nil
+	case from.Kind() == reflect.Map && to.Kind() == reflect.Struct:
+		if m, ok := from.Interface().(map[string]any); ok {
+			return withoutUnsetBlocks(m, to.Type()), nil
+		}
+	}
+
+	return from.Interface(), nil
+}
+
+// withoutUnsetBlocks returns m without the entries for pointer-to-struct
+// fields of t whose values are nothing but zero values.
+func withoutUnsetBlocks(m map[string]any, t reflect.Type) map[string]any {
+	var out map[string]any
+	for field := range t.Fields() {
+		field := field
+		if field.Type.Kind() != reflect.Pointer || field.Type.Elem().Kind() != reflect.Struct {
+			continue
+		}
+		name, _, _ := strings.Cut(field.Tag.Get("mapstructure"), ",")
+		if name == "" {
+			name = field.Name
+		}
+		for key, value := range m {
+			if !strings.EqualFold(key, name) || !allZero(reflect.ValueOf(value)) {
+				continue
+			}
+			if out == nil {
+				out = maps.Clone(m)
+			}
+			delete(out, key)
+		}
+	}
+	if out == nil {
+		return m
+	}
+
+	return out
+}
+
+// allZero reports whether v holds nothing but zero values, empty slices and
+// maps of the same.
+func allZero(v reflect.Value) bool {
+	for v.Kind() == reflect.Interface {
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Map:
+		for _, key := range v.MapKeys() {
+			if !allZero(v.MapIndex(key)) {
+				return false
+			}
+		}
+
+		return true
+	case reflect.Slice:
+		return v.Len() == 0
+	case reflect.Invalid:
+		return true
+	default:
+		return v.IsZero()
+	}
 }
 
 // IsDocker detects if the application is running inside a Docker container.

@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/dioad/config v0.2.0
+	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
@@ -19,7 +20,6 @@ require (
 	github.com/dioad/generics v0.0.9 // indirect
 	github.com/dioad/util v0.7.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
-	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.16 // indirect

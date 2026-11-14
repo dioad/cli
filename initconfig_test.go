@@ -3,6 +3,7 @@
 package cli_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -247,4 +248,54 @@ func TestInitViperConfigWithFlagSet(t *testing.T) {
 		assert.Equal(t, "fromenv", cfg.Host,
 			"TESTAPP2_HOST should override the --host flag default")
 	})
+}
+
+// TestInitConfigLeavesUnsetBlocksNil pins that a slice flag nobody set decodes
+// to a nil slice, and a pointer block no flag or config set stays nil. Viper
+// answers for every bound flag, so without that an unset slice would decode
+// empty and an unset block would be allocated, and neither would equal its
+// zero value: a check for whether a block is set would see every block as set.
+func TestInitConfigLeavesUnsetBlocksNil(t *testing.T) {
+	type block struct {
+		URL   string   `mapstructure:"url"`
+		Names []string `mapstructure:"names"`
+	}
+	type testConfig struct {
+		Block   block  `mapstructure:"block"`
+		Pointer *block `mapstructure:"pointer"`
+	}
+
+	cfg := &testConfig{}
+	cmd := cli.NewCommand(&cobra.Command{Use: "testapp"}, func(context.Context, *testConfig) error { return nil }, cfg)
+	require.NoError(t, cmd.ParseFlags(nil))
+
+	// Generating the flags allocates the pointer in cfg, so decode into a fresh value.
+	got := &testConfig{}
+	_, err := cli.InitConfig("testorg", "testapp", cmd, got, cli.WithoutLogging())
+
+	require.NoError(t, err)
+	assert.Equal(t, testConfig{}, *got)
+}
+
+// TestInitConfigKeepsABlockTheConfigSets pins that dropping unset blocks does
+// not drop one the config file gives a value.
+func TestInitConfigKeepsABlockTheConfigSets(t *testing.T) {
+	type block struct {
+		URL   string   `mapstructure:"url"`
+		Names []string `mapstructure:"names"`
+	}
+	type testConfig struct {
+		Pointer *block `mapstructure:"pointer"`
+	}
+
+	cfg := &testConfig{}
+	cmd := cli.NewCommand(&cobra.Command{Use: "testapp"}, func(context.Context, *testConfig) error { return nil }, cfg)
+	cmd.Flags().String("config", writeYAML(t, "pointer:\n  names: [a]\n"), "")
+	require.NoError(t, cmd.ParseFlags(nil))
+
+	got := &testConfig{}
+	_, err := cli.InitConfig("testorg", "testapp", cmd, got, cli.WithoutLogging())
+
+	require.NoError(t, err)
+	assert.Equal(t, &block{Names: []string{"a"}}, got.Pointer)
 }
