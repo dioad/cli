@@ -119,7 +119,7 @@ func defaultInitConfigOptions() initConfigOptions {
 
 // WithoutLogging disables automatic logging configuration during InitConfig.
 //
-// By default, InitConfig configures the global logger via ConfigureCmdLogger.
+// By default, InitConfig configures the global logger via ConfigureProcessLogging.
 // Use this option in tests or when managing logging independently.
 func WithoutLogging() InitConfigOption {
 	return func(o *initConfigOptions) {
@@ -186,7 +186,7 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...In
 	}
 
 	if options.configureLogging {
-		logging.ConfigureCmdLogger(c.Logging)
+		logging.ConfigureProcessLogging(c.Logging)
 	}
 
 	err = UnmarshalConfig(v, cfg)

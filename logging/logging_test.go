@@ -2,12 +2,14 @@ package logging_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"testing"
 
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -232,4 +234,18 @@ func BenchmarkConfigureCmdLogger(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		logging.ConfigureCmdLogger(cfg)
 	}
+}
+
+func TestConfigureProcessLogging_MakesTheLoggerTheContextDefault(t *testing.T) {
+	previous := zerolog.DefaultContextLogger
+	previousLogger := log.Logger
+	t.Cleanup(func() {
+		zerolog.DefaultContextLogger = previous
+		log.Logger = previousLogger
+	})
+
+	logging.ConfigureProcessLogging(logging.Config{})
+
+	require.NotNil(t, zerolog.DefaultContextLogger)
+	assert.NotEqual(t, zerolog.Disabled, zerolog.Ctx(context.Background()).GetLevel(), "a context with no logger now gets the process logger")
 }
