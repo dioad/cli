@@ -6,6 +6,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/urfave/sflags"
 )
 
@@ -47,4 +48,25 @@ func WithGlobalZerologLevel(level zerolog.Level) CommandOpt {
 	return func(_ *cobra.Command) {
 		zerolog.SetGlobalLevel(level)
 	}
+}
+
+// UndocumentedFlags returns the visible flags in cmd's tree that have no usage
+// text, as "command path --flag" strings. A flag a user can see in --help
+// without a description is a defect, so a consumer can guard its CLI with
+//
+//	require.Empty(t, cli.UndocumentedFlags(rootCmd))
+//
+// Hidden and deprecated flags are not reported, since --help does not list them.
+func UndocumentedFlags(cmd *cobra.Command) []string {
+	var missing []string
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if f.Usage == "" && !f.Hidden && f.Deprecated == "" {
+			missing = append(missing, cmd.CommandPath()+" --"+f.Name)
+		}
+	})
+	for _, child := range cmd.Commands() {
+		missing = append(missing, UndocumentedFlags(child)...)
+	}
+
+	return missing
 }

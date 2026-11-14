@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -128,4 +129,68 @@ func TestInitConfig_EnvironmentOverridesUseTheConfigKey(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, ":5555", cfg.Management.ListenAddress)
+}
+
+func TestNewCommand_CommonLoggingFlagsMatchTheConfigKeys(t *testing.T) {
+	t.Parallel()
+	cmd := cli.NewCommand(&cobra.Command{Use: "testapp"}, func(context.Context, *cli.CommonConfig) error { return nil }, &cli.CommonConfig{})
+
+	for _, name := range []string{"log-level", "log-file", "log-max-size", "log-max-age", "log-max-backups", "log-use-local-time", "log-compress"} {
+		flag := cmd.Flags().Lookup(name)
+		require.NotNil(t, flag, "--%s should exist", name)
+		assert.NotEmpty(t, flag.Usage, "--%s needs help text", name)
+		assert.False(t, flag.Hidden, "--%s is visible", name)
+	}
+
+	mode := cmd.Flags().Lookup("log-mode")
+	require.NotNil(t, mode)
+	assert.True(t, mode.Hidden, "mode is reserved for future use, so --help does not list it")
+}
+
+func TestNewCommand_PreviousLoggingFlagsStayAsDeprecatedAliases(t *testing.T) {
+	t.Parallel()
+	cmd := cli.NewCommand(&cobra.Command{Use: "testapp"}, func(context.Context, *cli.CommonConfig) error { return nil }, &cli.CommonConfig{})
+
+	for oldName, newName := range map[string]string{"logging-level": "log-level", "logging-local-time": "log-use-local-time"} {
+		alias := cmd.Flags().Lookup(oldName)
+		require.NotNil(t, alias, "--%s should still be accepted", oldName)
+		assert.True(t, alias.Hidden)
+		assert.Contains(t, alias.Deprecated, "--"+newName)
+	}
+
+	var cfg cli.CommonConfig
+	require.NoError(t, cmd.Flags().Parse([]string{"--logging-level=debug"}))
+	_, err := cli.InitConfig("testorg", "testapp", cmd, &cfg, cli.WithoutLogging())
+	require.NoError(t, err)
+	assert.Equal(t, "debug", cfg.Logging.Level, "the old name still sets the value")
+}
+
+func TestUndocumentedFlags(t *testing.T) {
+	t.Parallel()
+	root := &cobra.Command{Use: "app"}
+	child := &cobra.Command{Use: "child"}
+	root.AddCommand(child)
+	root.Flags().String("documented", "", "has usage")
+	root.Flags().String("bare", "", "")
+	child.Flags().String("child-bare", "", "")
+	child.Flags().String("hidden-bare", "", "")
+	require.NoError(t, child.Flags().MarkHidden("hidden-bare"))
+
+	assert.ElementsMatch(t, []string{"app --bare", "app child --child-bare"}, cli.UndocumentedFlags(root))
+}
+
+func TestNewCommand_CommonConfigHasNoUndocumentedFlags(t *testing.T) {
+	t.Parallel()
+	cmd := cli.NewCommand(&cobra.Command{Use: "testapp"}, func(context.Context, *cli.CommonConfig) error { return nil }, &cli.CommonConfig{})
+
+	assert.Empty(t, cli.UndocumentedFlags(cmd))
+}
+
+func ExampleUndocumentedFlags() {
+	root := &cobra.Command{Use: "app"}
+	root.Flags().String("port", "", "port to listen on")
+	root.Flags().String("mystery", "", "")
+
+	fmt.Println(cli.UndocumentedFlags(root))
+	// Output: [app --mystery]
 }
