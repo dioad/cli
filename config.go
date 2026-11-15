@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -244,89 +243,88 @@ func readConfigFile(v *viper.Viper) error {
 // net.IP, and net.IPNet. This allows for seamless unmarshalling of complex configuration fields.
 //
 // The hook is configcheck.DecodeHook, so configcheck.Decode accepts exactly
-// the values this function does, after unset flags have been dropped.
+// the values this function does.
+//
+// Viper answers for every bound flag, set or not, so left alone an unset slice
+// flag decodes as an empty slice, and every pointer field gets allocated. Neither
+// equals its zero value, so a check for whether a field is set would see it
+// as set. UnmarshalConfig decodes an empty slice as nil, and leaves a pointer
+// field nil unless the config file, the environment or a flag on the command
+// line sets it or something under it.
 func UnmarshalConfig(v *viper.Viper, c any) error {
-	hook := mapstructure.ComposeDecodeHookFunc(configcheck.DecodeHook(), dropUnset)
+	settings := v.AllSettings()
+	dropUnsetPointers(v, settings, reflect.TypeOf(c), nil)
 
-	return v.Unmarshal(c, viper.DecodeHook(hook))
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		DecodeHook:       mapstructure.ComposeDecodeHookFunc(configcheck.DecodeHook(), dropEmptySlice),
+		WeaklyTypedInput: true,
+		Result:           c,
+	})
+	if err != nil {
+		return err
+	}
+
+	return decoder.Decode(settings)
 }
 
-// dropUnset keeps what viper answers for every bound flag, but did not get
-// from the config, out of the decoded struct: a flag nobody set arrives as an
-// empty slice, or as a block of zero values for a pointer field. Decoding
-// those would leave an empty slice, or an allocated block, in a field the
-// config never mentioned. Such a field differs from its zero value, and a check
-// for whether it is set would see it as set. A config that sets a block to
-// nothing but zero values reads as not setting it.
-//
-// It is composed last because a hook that returns nil leaves the ones after it
+// dropEmptySlice decodes an empty slice as the zero value of its target. It is
+// composed last because a hook that returns nil leaves the ones after it
 // nothing to convert.
-func dropUnset(from, to reflect.Value) (any, error) {
-	switch {
-	case from.Kind() == reflect.Slice && to.Kind() == reflect.Slice && from.Len() == 0:
+func dropEmptySlice(from, to reflect.Value) (any, error) {
+	if from.Kind() == reflect.Slice && to.Kind() == reflect.Slice && from.Len() == 0 {
 		return nil, nil
-	case from.Kind() == reflect.Map && to.Kind() == reflect.Struct:
-		if m, ok := from.Interface().(map[string]any); ok {
-			return withoutUnsetBlocks(m, to.Type()), nil
-		}
 	}
 
 	return from.Interface(), nil
 }
 
-// withoutUnsetBlocks returns m without the entries for pointer-to-struct
-// fields of t whose values are nothing but zero values.
-func withoutUnsetBlocks(m map[string]any, t reflect.Type) map[string]any {
-	var out map[string]any
+// dropUnsetPointers removes from settings the entries for the pointer fields of
+// t that nothing but a flag's default gives a value, descending into the
+// fields it keeps. path is the key of settings within the config.
+func dropUnsetPointers(v *viper.Viper, settings map[string]any, t reflect.Type, path []string) {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return
+	}
+
 	for field := range t.Fields() {
-		field := field
-		if field.Type.Kind() != reflect.Pointer || field.Type.Elem().Kind() != reflect.Struct {
+		name, options, _ := strings.Cut(field.Tag.Get("mapstructure"), ",")
+		squash := field.Anonymous && name == "" || strings.Contains(options, "squash")
+		if squash {
+			dropUnsetPointers(v, settings, field.Type, path)
+
 			continue
 		}
-		name, _, _ := strings.Cut(field.Tag.Get("mapstructure"), ",")
 		if name == "" {
 			name = field.Name
 		}
-		for key, value := range m {
-			if !strings.EqualFold(key, name) || !allZero(reflect.ValueOf(value)) {
-				continue
-			}
-			if out == nil {
-				out = maps.Clone(m)
-			}
-			delete(out, key)
+		name = strings.ToLower(name)
+
+		fieldPath := append(path[:len(path):len(path)], name)
+		if field.Type.Kind() == reflect.Pointer && !isConfigured(v, strings.Join(fieldPath, ".")) {
+			delete(settings, name)
+
+			continue
+		}
+		if nested, ok := settings[name].(map[string]any); ok {
+			dropUnsetPointers(v, nested, field.Type, fieldPath)
 		}
 	}
-	if out == nil {
-		return m
-	}
-
-	return out
 }
 
-// allZero reports whether v holds nothing but zero values, empty slices and
-// maps of the same.
-func allZero(v reflect.Value) bool {
-	for v.Kind() == reflect.Interface {
-		v = v.Elem()
-	}
-
-	switch v.Kind() {
-	case reflect.Map:
-		for _, key := range v.MapKeys() {
-			if !allZero(v.MapIndex(key)) {
-				return false
-			}
+// isConfigured reports whether key, or a key under it, has a value from the
+// config file, the environment or a flag that was set. A flag's default does
+// not count.
+func isConfigured(v *viper.Viper, key string) bool {
+	for _, k := range v.AllKeys() {
+		if (k == key || strings.HasPrefix(k, key+".")) && v.IsSet(k) {
+			return true
 		}
-
-		return true
-	case reflect.Slice:
-		return v.Len() == 0
-	case reflect.Invalid:
-		return true
-	default:
-		return v.IsZero()
 	}
+
+	return false
 }
 
 // IsDocker detects if the application is running inside a Docker container.
