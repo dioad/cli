@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -257,8 +258,11 @@ func TestInitViperConfigWithFlagSet(t *testing.T) {
 // zero value: a check for whether a block is set would see every block as set.
 func TestInitConfigLeavesUnsetBlocksNil(t *testing.T) {
 	type block struct {
-		URL   string   `mapstructure:"url"`
-		Names []string `mapstructure:"names"`
+		URL     string        `mapstructure:"url"`
+		Names   []string      `mapstructure:"names"`
+		Timeout time.Duration `mapstructure:"timeout"`
+		Port    int           `mapstructure:"port"`
+		Enabled bool          `mapstructure:"enabled"`
 	}
 	type testConfig struct {
 		Block   block  `mapstructure:"block"`
@@ -298,4 +302,31 @@ func TestInitConfigKeepsABlockTheConfigSets(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, &block{Names: []string{"a"}}, got.Pointer)
+}
+
+// TestInitConfigDistinguishesAnUnsetPointerFromAnExplicitZero pins that a
+// pointer to a scalar is nil when nothing sets it, and points at the zero value
+// when the config sets it to that.
+func TestInitConfigDistinguishesAnUnsetPointerFromAnExplicitZero(t *testing.T) {
+	type testConfig struct {
+		Enabled *bool `mapstructure:"enabled"`
+	}
+
+	load := func(t *testing.T, yaml string) *testConfig {
+		t.Helper()
+		cmd := cli.NewCommand(&cobra.Command{Use: "testapp"}, func(context.Context, *testConfig) error { return nil }, &testConfig{})
+		if yaml != "" {
+			cmd.Flags().String("config", writeYAML(t, yaml), "")
+		}
+		require.NoError(t, cmd.ParseFlags(nil))
+		got := &testConfig{}
+		_, err := cli.InitConfig("testorg", "testapp", cmd, got, cli.WithoutLogging())
+		require.NoError(t, err)
+
+		return got
+	}
+
+	assert.Nil(t, load(t, "").Enabled, "nothing sets it")
+	explicit := false
+	assert.Equal(t, &explicit, load(t, "enabled: false\n").Enabled, "the file sets it to false")
 }
