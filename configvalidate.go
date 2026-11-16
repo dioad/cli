@@ -37,6 +37,34 @@ func (e *FileError) Unwrap() error {
 	return e.Err
 }
 
+// ValidateConfigFileOpt is a functional option for ValidateConfigFile.
+type ValidateConfigFileOpt func(*validateConfigFileOptions)
+
+type validateConfigFileOptions struct {
+	envPrefix string
+}
+
+// WithEnvOverrides makes ValidateConfigFile apply the environment variables
+// that override the file's settings when InitConfig loads it for appName, so
+// the result is for the configuration the service would start with here and
+// not for the file alone.
+//
+// As in InitConfig, a variable overrides only a setting the file lists, and an
+// empty variable overrides nothing. A variable that matches no setting is not
+// a problem: the environment is shared with everything else on the machine.
+func WithEnvOverrides(appName string) ValidateConfigFileOpt {
+	return func(o *validateConfigFileOptions) { o.envPrefix = appName }
+}
+
+// mode says whether the environment was applied, for the result line.
+func (o validateConfigFileOptions) mode() string {
+	if o.envPrefix == "" {
+		return "environment overrides not applied"
+	}
+
+	return "environment overrides applied"
+}
+
 // ValidateConfigFile checks the config file at path as the service would at
 // startup, without starting it, and writes the result to w: every problem, one
 // per line under the path of the file it is in, or a line saying the file is
@@ -45,8 +73,16 @@ func (e *FileError) Unwrap() error {
 // rejects is too. If cfg is a ReferenceChecker, what it refers to is checked
 // as well. All are reported together. It returns an error if the file is
 // invalid or cannot be read.
-func ValidateConfigFile(w io.Writer, path string, cfg Validator) error {
-	err := DecodeConfigFile(path, cfg)
+//
+// Only the file is checked unless WithEnvOverrides is given. The result line
+// and the returned error say which.
+func ValidateConfigFile(w io.Writer, path string, cfg Validator, opts ...ValidateConfigFileOpt) error {
+	var options validateConfigFileOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	err := decodeConfigFile(path, cfg, options.envPrefix)
 	var decodeFindings *configcheck.Error
 	if err != nil && !errors.As(err, &decodeFindings) {
 		return err
@@ -63,7 +99,7 @@ func ValidateConfigFile(w io.Writer, path string, cfg Validator) error {
 
 	report := newValidationReport(path, findings.Findings(), referenceErr)
 	if report.problems == 0 {
-		_, err = fmt.Fprintf(w, "%s is valid\n", path)
+		_, err = fmt.Fprintf(w, "%s is valid (%s)\n", path, options.mode())
 
 		return err
 	}
@@ -72,7 +108,7 @@ func ValidateConfigFile(w io.Writer, path string, cfg Validator) error {
 		return err
 	}
 
-	return fmt.Errorf("%s: %d configuration problem(s) found", path, report.problems)
+	return fmt.Errorf("%s: %d configuration problem(s) found (%s)", path, report.problems, options.mode())
 }
 
 type validationReport struct {

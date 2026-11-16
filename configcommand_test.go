@@ -77,7 +77,7 @@ func TestConfigValidate_AcceptsAGoodFile(t *testing.T) {
 	out, err := runConfigCommand(t, "validate", "--config", path)
 
 	require.NoError(t, err)
-	assert.Equal(t, path+" is valid\n", out)
+	assert.Equal(t, path+" is valid (environment overrides not applied)\n", out)
 }
 
 func TestConfigValidate_ReportsEveryProblemTogether(t *testing.T) {
@@ -110,7 +110,7 @@ func TestConfigValidate_UsesTheDefaultFile(t *testing.T) {
 	root.SetArgs([]string{"config", "validate"})
 
 	require.NoError(t, root.Execute())
-	assert.Equal(t, path+" is valid\n", out.String())
+	assert.Equal(t, path+" is valid (environment overrides not applied)\n", out.String())
 }
 
 func TestConfigExample_ListsEverySettingWithItsDescriptionAndDefault(t *testing.T) {
@@ -268,5 +268,5 @@ func ExampleNewConfigCommand() {
 	// svc.yaml:
 	//   listen-adress: unknown key
 	//   workers must be at least 1
-	// Error: svc.yaml: 2 configuration problem(s) found
+	// Error: svc.yaml: 2 configuration problem(s) found (environment overrides not applied)
 }

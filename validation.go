@@ -96,7 +96,18 @@ func WithConfigValidation() CommandOpt {
 // WithStrictConfigFile, keys with a null or empty-map value are not
 // reported.
 func DecodeConfigFile(path string, out any) error {
+	return decodeConfigFile(path, out, "")
+}
+
+// decodeConfigFile is DecodeConfigFile with, when envPrefix is not empty, the
+// environment variable overrides InitConfig applies for that app name. Only
+// the file's keys are overridden, so only they are subject to the unknown-key
+// check.
+func decodeConfigFile(path string, out any, envPrefix string) error {
 	v := viper.New()
+	if envPrefix != "" {
+		configureEnv(v, envPrefix)
+	}
 	v.SetConfigFile(path)
 	if err := v.ReadInConfig(); err != nil {
 		return fmt.Errorf("reading config file: %w", err)

@@ -31,7 +31,20 @@ $ go run ./examples/config-command config validate --config greeter.yaml
 greeter.yaml:
   management.listen-adress: unknown key
   repeat must be at least 1, got 0
-Error: greeter.yaml: 2 configuration problem(s) found
+Error: greeter.yaml: 2 configuration problem(s) found (environment overrides applied)
+```
+
+The example passes `cli.WithConfigEnvPrefix("greeter")`, so `config validate`
+applies the environment variables `run` would, and says so. With `GREETER_REPEAT=2`
+set, the file above has one problem, not two. `--ignore-env` checks the file by
+itself:
+
+```console
+$ GREETER_REPEAT=2 go run ./examples/config-command config validate --config greeter.yaml --ignore-env
+greeter.yaml:
+  management.listen-adress: unknown key
+  repeat must be at least 1, got 0
+Error: greeter.yaml: 2 configuration problem(s) found (environment overrides not applied)
 ```
 
 `config schema` prints a JSON Schema for editors and validators.

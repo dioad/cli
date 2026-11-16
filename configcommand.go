@@ -13,6 +13,7 @@ type ConfigCommandOpt func(*configCommand)
 
 type configCommand struct {
 	defaultFile    string
+	envPrefix      string
 	example        func() ([]byte, error)
 	schema         func() ([]byte, error)
 	schemaVariants []schemaVariant
@@ -60,6 +61,18 @@ func WithConfigSchemaVariant(name, usage string, schema func() ([]byte, error)) 
 	}
 }
 
+// WithConfigEnvPrefix makes "config validate" apply the environment variables
+// that override the file's settings at startup, as WithEnvOverrides describes,
+// so it answers whether the service would start here. appName is the one the
+// service passes to InitConfig. The command gets an --ignore-env flag that
+// checks the file by itself, for a file whose secrets are only set where it
+// is deployed.
+//
+// Without this option "config validate" checks the file alone.
+func WithConfigEnvPrefix(appName string) ConfigCommandOpt {
+	return func(c *configCommand) { c.envPrefix = appName }
+}
+
 // WithConfigValidateHelp adds text to the end of the help "config validate"
 // prints, for what the service's checks do and do not cover.
 func WithConfigValidateHelp(text string) ConfigCommandOpt {
@@ -86,6 +99,7 @@ func WithConfigSchemaHelp(text string) ConfigCommandOpt {
 //     every key that matches no setting, with its full path, and every setting
 //     the config's Validate method rejects, and exits non-zero if there is any.
 //     A config that is a ReferenceChecker has what it refers to checked too.
+//     It checks the file alone unless WithConfigEnvPrefix is given.
 //   - example prints an example config file listing every setting.
 //   - schema prints the JSON Schema of the config file.
 //
@@ -123,16 +137,49 @@ startup, all together. Exits non-zero if any problem is found.`, kind)
 	cmd := &cobra.Command{
 		Use:          "validate",
 		Short:        fmt.Sprintf("Check a %s config file for unknown keys and invalid settings", kind),
-		Long:         withHelp(long, c.validateHelp),
+		Long:         withHelp(long, c.envHelp(kind), c.validateHelp),
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return ValidateConfigFile(cmd.OutOrStdout(), cmd.Flag("config").Value.String(), newConfig())
+			var opts []ValidateConfigFileOpt
+			if c.envPrefix != "" {
+				ignoreEnv, err := cmd.Flags().GetBool(ignoreEnvFlag)
+				if err != nil {
+					return err
+				}
+				if !ignoreEnv {
+					opts = append(opts, WithEnvOverrides(c.envPrefix))
+				}
+			}
+
+			return ValidateConfigFile(cmd.OutOrStdout(), cmd.Flag("config").Value.String(), newConfig(), opts...)
 		},
 	}
 	cmd.Flags().StringP("config", "c", c.defaultFile, "config file to check")
+	if c.envPrefix != "" {
+		cmd.Flags().Bool(ignoreEnvFlag, false, "check the file by itself, without environment variable overrides")
+	}
 
 	return cmd
+}
+
+const ignoreEnvFlag = "ignore-env"
+
+// envHelp is the part of the "config validate" help that says whether the
+// environment is applied.
+func (c *configCommand) envHelp(kind string) string {
+	if c.envPrefix == "" {
+		return fmt.Sprintf(`Checks the file alone: environment variables that override its settings when
+the %s starts are not applied, so a setting the environment supplies is
+reported as it is in the file.`, kind)
+	}
+
+	return fmt.Sprintf(`Environment variables override the file's settings as they do when the %[1]s
+starts, so the result is for this environment: %[2]s overrides
+section.some-key. Only a setting the file lists is overridden, so a setting
+the environment supplies must be in the file, with an empty value. A variable
+that matches no setting is not a problem. Use --%[3]s to check the file by
+itself. The result says which was checked.`, kind, envVarName(c.envPrefix, "section.some-key"), ignoreEnvFlag)
 }
 
 func (c *configCommand) exampleCommand(kind string) *cobra.Command {

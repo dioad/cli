@@ -54,6 +54,9 @@ accepted as hidden, deprecated aliases.
   `configcheck.Collector` so each names its key path.
 - Add `cli.NewConfigCommand(kind, newConfig)` to the service's root command, so
   operators can check a file with `config validate` before starting the service.
+  Pass `cli.WithConfigEnvPrefix(appName)` so it applies the environment
+  variables the service does at startup; without it, it checks the file alone,
+  and reports a secret the environment supplies as missing.
 - If the config refers to files it can only be fully checked against, implement
   `cli.ReferenceChecker`; `config validate` then reports each file's problems
   under that file's path.
