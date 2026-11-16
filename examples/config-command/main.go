@@ -57,19 +57,24 @@ func run(_ context.Context, cfg *Config) error {
 	return nil
 }
 
+// appName prefixes the environment variables that override settings, such as
+// GREETER_REPEAT for repeat.
+const appName = "greeter"
+
 func newRootCommand() *cobra.Command {
 	root := &cobra.Command{Use: "greeter", Short: "Say hello"}
 
 	serve := cli.NewCommand(&cobra.Command{Use: "run", Short: "Say the greeting"}, run, NewConfig(),
 		cli.WithConfigFlag(""), cli.WithConfigValidation())
 	root.AddCommand(serve)
-	root.AddCommand(cli.NewConfigCommand("greeter", func() cli.Validator { return NewConfig() }))
+	root.AddCommand(cli.NewConfigCommand("greeter", func() cli.Validator { return NewConfig() },
+		cli.WithConfigEnvPrefix(appName)))
 
 	return root
 }
 
 func main() {
-	ctx := cli.Context(context.Background(), cli.SetOrgName("dioad"), cli.SetAppName("greeter"))
+	ctx := cli.Context(context.Background(), cli.SetOrgName("dioad"), cli.SetAppName(appName))
 	if err := newRootCommand().ExecuteContext(ctx); err != nil {
 		os.Exit(1)
 	}

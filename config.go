@@ -162,8 +162,7 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...In
 
 	v := viper.New()
 
-	v.SetEnvPrefix(appName)
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	configureEnv(v, appName)
 
 	err = bindFlags(v, cmd.Flags())
 	if err != nil {
@@ -171,8 +170,6 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...In
 	}
 
 	configureConfigFile(v, orgName, appName, cmd)
-
-	v.AutomaticEnv()
 
 	err = readConfigFile(v)
 	if err != nil {
@@ -196,6 +193,26 @@ func InitConfig(orgName, appName string, cmd *cobra.Command, cfg any, opts ...In
 	}
 
 	return &c, nil
+}
+
+// envKeyReplacer maps a config key to the environment variable that overrides
+// it, before the app name is prefixed.
+var envKeyReplacer = strings.NewReplacer("-", "_", ".", "_")
+
+// configureEnv makes v take the value of a key it knows from the environment
+// variable envVarName gives for it, when that is set and not empty. InitConfig
+// and "config validate" both set their viper up here, so they agree on which
+// variable overrides which setting.
+func configureEnv(v *viper.Viper, appName string) {
+	v.SetEnvPrefix(appName)
+	v.SetEnvKeyReplacer(envKeyReplacer)
+	v.AutomaticEnv()
+}
+
+// envVarName returns the name of the environment variable configureEnv reads
+// for key, for help text.
+func envVarName(appName, key string) string {
+	return strings.ToUpper(envKeyReplacer.Replace(appName + "_" + key))
 }
 
 // configureConfigFile points v at the config file InitConfig reads for cmd:

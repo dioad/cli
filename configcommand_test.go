@@ -45,8 +45,14 @@ func (c *serviceConfig) Validate() error {
 
 func runConfigCommand(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+
+	return runConfigCommandFor(t, newServiceConfig, nil, args...)
+}
+
+func runConfigCommandFor(t *testing.T, newConfig func() cli.Validator, opts []cli.ConfigCommandOpt, args ...string) (string, error) {
+	t.Helper()
 	root := &cobra.Command{Use: "svc"}
-	root.AddCommand(cli.NewConfigCommand("svc", newServiceConfig))
+	root.AddCommand(cli.NewConfigCommand("svc", newConfig, opts...))
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&out)
@@ -71,7 +77,7 @@ func TestConfigValidate_AcceptsAGoodFile(t *testing.T) {
 	out, err := runConfigCommand(t, "validate", "--config", path)
 
 	require.NoError(t, err)
-	assert.Equal(t, path+" is valid\n", out)
+	assert.Equal(t, path+" is valid (environment overrides not applied)\n", out)
 }
 
 func TestConfigValidate_ReportsEveryProblemTogether(t *testing.T) {
@@ -104,7 +110,7 @@ func TestConfigValidate_UsesTheDefaultFile(t *testing.T) {
 	root.SetArgs([]string{"config", "validate"})
 
 	require.NoError(t, root.Execute())
-	assert.Equal(t, path+" is valid\n", out.String())
+	assert.Equal(t, path+" is valid (environment overrides not applied)\n", out.String())
 }
 
 func TestConfigExample_ListsEverySettingWithItsDescriptionAndDefault(t *testing.T) {
@@ -179,6 +185,69 @@ func TestConfigCommand_ExampleAndSchemaCanBeSuppliedByTheService(t *testing.T) {
 	}
 }
 
+func TestConfigCommand_HelpCanBeExtendedByTheService(t *testing.T) {
+	t.Parallel()
+	opts := []cli.ConfigCommandOpt{
+		cli.WithConfigValidateHelp("Plugin config blocks are not checked."),
+		cli.WithConfigExampleHelp("Tunnel types come from the installed plugins."),
+		cli.WithConfigSchemaHelp("The schema does not cover plugin config blocks."),
+	}
+
+	for subcommand, want := range map[string]string{
+		"validate": "Plugin config blocks are not checked.",
+		"example":  "Tunnel types come from the installed plugins.",
+		"schema":   "The schema does not cover plugin config blocks.",
+	} {
+		out, err := runConfigCommandFor(t, newServiceConfig, opts, subcommand, "--help")
+
+		require.NoError(t, err)
+		assert.Contains(t, out, "svc config file", "%s keeps its own help", subcommand)
+		assert.Contains(t, out, want, "%s adds the service's text", subcommand)
+	}
+}
+
+func TestConfigSchema_PrintsAVariantWhenItsFlagIsGiven(t *testing.T) {
+	t.Parallel()
+	opts := []cli.ConfigCommandOpt{
+		cli.WithConfigSchema(func() ([]byte, error) { return []byte("main\n"), nil }),
+		cli.WithConfigSchemaVariant("discovery-file", "print the schema of a discovery file",
+			func() ([]byte, error) { return []byte("discovery\n"), nil }),
+		cli.WithConfigSchemaVariant("manifest", "print the schema of a plugin manifest",
+			func() ([]byte, error) { return []byte("manifest\n"), nil }),
+	}
+
+	t.Run("no flag prints the config file's schema", func(t *testing.T) {
+		t.Parallel()
+		out, err := runConfigCommandFor(t, newServiceConfig, opts, "schema")
+
+		require.NoError(t, err)
+		assert.Equal(t, "main\n", out)
+	})
+
+	t.Run("a variant's flag prints that variant", func(t *testing.T) {
+		t.Parallel()
+		out, err := runConfigCommandFor(t, newServiceConfig, opts, "schema", "--manifest")
+
+		require.NoError(t, err)
+		assert.Equal(t, "manifest\n", out)
+	})
+
+	t.Run("the flag is described in the help", func(t *testing.T) {
+		t.Parallel()
+		out, err := runConfigCommandFor(t, newServiceConfig, opts, "schema", "--help")
+
+		require.NoError(t, err)
+		assert.Contains(t, out, "print the schema of a discovery file")
+	})
+
+	t.Run("two variants cannot be asked for together", func(t *testing.T) {
+		t.Parallel()
+		_, err := runConfigCommandFor(t, newServiceConfig, opts, "schema", "--manifest", "--discovery-file")
+
+		require.ErrorContains(t, err, "none of the others can be")
+	})
+}
+
 func ExampleNewConfigCommand() {
 	root := &cobra.Command{Use: "svc"}
 	root.AddCommand(cli.NewConfigCommand("svc", newServiceConfig))
@@ -199,5 +268,5 @@ func ExampleNewConfigCommand() {
 	// svc.yaml:
 	//   listen-adress: unknown key
 	//   workers must be at least 1
-	// Error: svc.yaml: 2 configuration problem(s) found
+	// Error: svc.yaml: 2 configuration problem(s) found (environment overrides not applied)
 }

@@ -71,8 +71,8 @@ func walkConfigFlags(t reflect.Type, flagPrefix string, keyPath []string, explic
 		return
 	}
 
-	for i := range t.NumField() {
-		field := t.Field(i)
+	for field := range t.Fields() {
+		field := field
 		if field.PkgPath != "" && !field.Anonymous {
 			continue
 		}
